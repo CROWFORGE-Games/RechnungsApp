@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#3f8a5a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="RechnungsApp" />
+    <title>RechnungsApp</title>
+    <link rel="icon" href="/assets/KaindlLogo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/assets/KaindlLogo.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="appShell">
+      <aside class="tool-rail" id="toolRail">
+        <div class="tool-rail__top">
+          <button class="nav-toggle" id="navToggle" type="button" aria-label="Navigation ein- oder ausklappen">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+        </div>
+
+        <div class="tool-rail__actions">
+          <button class="rail-button is-active" type="button" data-focus-main>
+            <span class="rail-icon rail-icon--invoice" aria-hidden="true"></span>
+            <span class="rail-label">Rechnung</span>
+          </button>
+          <button class="rail-button" type="button" data-open-panel="customersPanel">
+            <span class="rail-icon rail-icon--customers" aria-hidden="true"></span>
+            <span class="rail-label">Kunden</span>
+          </button>
+          <button class="rail-button" type="button" data-open-panel="articlesPanel">
+            <span class="rail-icon rail-icon--articles" aria-hidden="true"></span>
+            <span class="rail-label">Leistungen</span>
+          </button>
+          <button class="rail-button" type="button" data-open-panel="settingsPanel">
+            <span class="rail-icon rail-icon--settings" aria-hidden="true"></span>
+            <span class="rail-label">Einstellungen</span>
+          </button>
+        </div>
+
+        <div class="hero-status" id="statusBanner">Lade Daten…</div>
+      </aside>
+
+      <main class="content-shell">
+        <section class="main-card" id="mainInvoiceArea">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Startansicht</p>
+              <h2>Rechnung zusammenstellen</h2>
+            </div>
+            <p class="section-note" id="templateHint">
+              Lege deine Vorlage als `public/assets/invoice-template.png` oder `public/assets/image.png`
+              ab. Das Banner für die Rechnung wird automatisch aus `public/assets/KaindlBanner.png`
+              geladen.
+            </p>
+          </div>
+
+          <form id="invoiceForm" class="invoice-meta-grid">
+            <label>
+              Kunde
+              <select id="invoiceCustomer" name="customerId"></select>
+            </label>
+            <label>
+              Rechnungsdatum
+              <input id="issueDate" name="issueDate" type="date" />
+            </label>
+            <label>
+              Fällig am
+              <input id="dueDate" name="dueDate" type="date" />
+            </label>
+            <label>
+              Betreff / Vermerk
+              <input id="invoiceReference" name="reference" type="text" />
+            </label>
+            <label class="span-2">
+              Notiz auf Rechnung
+              <textarea id="invoiceNotes" name="notes" rows="3"></textarea>
+            </label>
+          </form>
+
+          <div class="invoice-toolbar">
+            <div class="toolbar-group">
+              <button class="secondary" id="addInvoiceItem" type="button">Leistung hinzufügen</button>
+            </div>
+            <div class="totals-chip" id="invoiceTotals">Gesamt: 0,00 EUR</div>
+          </div>
+
+          <div class="table-wrap invoice-items-wrap">
+            <table class="invoice-table">
+              <thead>
+                <tr>
+                  <th>Artikel</th>
+                  <th>Beschreibung</th>
+                  <th>Menge</th>
+                  <th>Einheit</th>
+                  <th>Verkaufspreis</th>
+                  <th>MwSt. %</th>
+                  <th>Rabatt %</th>
+                  <th>Summe</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="invoiceItemsTable"></tbody>
+            </table>
+          </div>
+
+          <div class="preview-layout">
+            <div class="preview-card">
+              <div class="preview-head">
+                <h3>Vorschau</h3>
+                <button class="primary" id="createInvoiceButton" type="button">
+                  Rechnung erstellen und senden
+                </button>
+              </div>
+              <canvas id="invoiceCanvas" width="794" height="1123"></canvas>
+            </div>
+
+            <div class="side-card">
+              <h3>Letzte Rechnungen</h3>
+              <div id="invoiceHistory" class="history-list"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="panel-overlay" id="panelOverlay" hidden></div>
+
+    <aside class="side-panel" id="customersPanel" aria-hidden="true">
+      <div class="side-panel__head">
+        <div>
+          <p class="section-kicker">Kunden</p>
+          <h2>Kundenverwaltung</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
+      </div>
+
+      <form id="customerForm" class="form-grid compact-grid">
+        <input type="hidden" name="id" />
+        <label>
+          Kunden-Nr.
+          <input name="customerNumber" type="text" />
+        </label>
+        <label>
+          Firmenname
+          <input name="name" type="text" required />
+        </label>
+        <label>
+          Kontaktperson
+          <input name="contactPerson" type="text" />
+        </label>
+        <label>
+          Straße
+          <input name="street" type="text" />
+        </label>
+        <label>
+          PLZ
+          <input name="postalCode" type="text" />
+        </label>
+        <label>
+          Ort
+          <input name="city" type="text" />
+        </label>
+        <label>
+          Land
+          <input name="country" type="text" />
+        </label>
+        <label>
+          Telefon
+          <input name="phone" type="text" />
+        </label>
+        <label>
+          E-Mail
+          <input name="email" type="email" />
+        </label>
+        <label>
+          UID
+          <input name="uid" type="text" />
+        </label>
+        <label class="span-2">
+          Notizen
+          <textarea name="notes" rows="3"></textarea>
+        </label>
+        <div class="actions span-2">
+          <button class="primary" type="submit">Kunde speichern</button>
+          <button class="ghost" type="button" id="resetCustomerForm">Zurücksetzen</button>
+        </div>
+      </form>
+
+      <div class="table-wrap panel-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Nr.</th>
+              <th>Kunde</th>
+              <th>Ort</th>
+              <th>E-Mail</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="customersTable"></tbody>
+        </table>
+      </div>
+    </aside>
+
+    <aside class="side-panel" id="articlesPanel" aria-hidden="true">
+      <div class="side-panel__head">
+        <div>
+          <p class="section-kicker">Leistungen</p>
+          <h2>Artikel und Preise</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
+      </div>
+
+      <form id="articleForm" class="form-grid compact-grid">
+        <input type="hidden" name="id" />
+        <label>
+          Gruppe
+          <input name="group" type="text" />
+        </label>
+        <label>
+          Artikel-Nr.
+          <input name="number" type="text" />
+        </label>
+        <label>
+          Bezeichnung
+          <input name="name" type="text" required />
+        </label>
+        <div class="static-field">
+          <span class="static-field__label">Einheit</span>
+          <span class="static-field__value">Stunden</span>
+        </div>
+        <label>
+          Verkaufspreis
+          <input name="unitPrice" type="number" min="0" step="0.01" />
+        </label>
+        <label>
+          MwSt. %
+          <input name="taxRate" type="number" min="0" step="0.01" value="20" />
+        </label>
+        <label class="span-2">
+          Beschreibung
+          <textarea name="description" rows="3"></textarea>
+        </label>
+        <div class="actions span-2">
+          <button class="primary" type="submit">Leistung speichern</button>
+          <button class="ghost" type="button" id="resetArticleForm">Zurücksetzen</button>
+        </div>
+      </form>
+
+      <div class="table-wrap panel-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Nr.</th>
+              <th>Bezeichnung</th>
+              <th>Preis</th>
+              <th>Gruppe</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="articlesTable"></tbody>
+        </table>
+      </div>
+    </aside>
+
+    <aside class="side-panel" id="settingsPanel" aria-hidden="true">
+      <div class="side-panel__head">
+        <div>
+          <p class="section-kicker">Einstellungen</p>
+          <h2>Firma, Zähler und SMTP</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
+      </div>
+
+      <p class="panel-note">
+        Das SMTP-Passwort leer lassen, wenn das bisherige Passwort erhalten bleiben soll.
+      </p>
+
+      <form id="settingsForm" class="form-grid settings-grid">
+        <fieldset class="settings-section span-2">
+          <legend>Firma</legend>
+          <div class="settings-section__grid">
+            <label>
+              Firmenname
+              <input name="companyName" type="text" />
+            </label>
+            <label>
+              Absenderzeile
+              <input name="senderLine" type="text" placeholder="Abs.: Firma | Adresse" />
+            </label>
+            <label>
+              Adresse 1
+              <input name="addressLine1" type="text" />
+            </label>
+            <label>
+              Adresse 2
+              <input name="addressLine2" type="text" />
+            </label>
+            <label>
+              PLZ
+              <input name="postalCode" type="text" />
+            </label>
+            <label>
+              Ort
+              <input name="city" type="text" />
+            </label>
+            <label>
+              Land
+              <input name="country" type="text" />
+            </label>
+            <label>
+              Telefon
+              <input name="phone" type="text" />
+            </label>
+            <label>
+              Firmen-E-Mail
+              <input name="businessEmail" type="email" />
+            </label>
+            <label>
+              UID
+              <input name="uid" type="text" />
+            </label>
+            <label>
+              Bearbeiter
+              <input name="issuerName" type="text" />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-section span-2">
+          <legend>Bank und Rechnung</legend>
+          <div class="settings-section__grid">
+            <label>
+              Bank
+              <input name="bankName" type="text" />
+            </label>
+            <label>
+              IBAN
+              <input name="iban" type="text" />
+            </label>
+            <label>
+              BIC
+              <input name="bic" type="text" />
+            </label>
+            <label>
+              Rechnungs-Titel
+              <input name="invoiceTitle" type="text" />
+            </label>
+            <label>
+              Laufende Nummer
+              <input name="counterValue" type="number" min="0" step="1" />
+            </label>
+            <label>
+              Zähler-Jahr
+              <input name="counterYear" type="number" min="2000" step="1" />
+            </label>
+            <label class="span-2">
+              Zahlungshinweis
+              <textarea name="paymentNote" rows="3"></textarea>
+            </label>
+            <label class="span-2">
+              Fußzeile
+              <textarea name="footerNote" rows="3"></textarea>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-section span-2">
+          <legend>E-Mail und SMTP</legend>
+          <div class="settings-section__grid">
+            <label>
+              SMTP Host
+              <input name="smtpHost" type="text" />
+            </label>
+            <label>
+              SMTP Port
+              <input name="smtpPort" type="number" min="1" />
+            </label>
+            <label>
+              SMTP User
+              <input name="smtpUser" type="text" />
+            </label>
+            <label>
+              SMTP Passwort
+              <input name="smtpPass" type="password" />
+            </label>
+            <label>
+              Versand von
+              <input name="fromEmail" type="email" />
+            </label>
+            <label>
+              CC an eigene E-Mail
+              <input name="ccEmail" type="email" />
+            </label>
+            <label class="checkbox span-2">
+              <input name="smtpSecure" type="checkbox" />
+              SMTP Secure verwenden
+            </label>
+            <label class="span-2">
+              E-Mail Betreff
+              <input name="emailSubject" type="text" />
+            </label>
+            <label class="span-2">
+              E-Mail Text
+              <textarea name="emailBody" rows="4"></textarea>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="actions span-2">
+          <button class="primary" type="submit">Einstellungen speichern</button>
+        </div>
+      </form>
+    </aside>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+  </html>

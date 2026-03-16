@@ -1,0 +1,5 @@
+node_modules/
+generated/*.pdf
+generated/*.png
+data/store.json.bak
+npm-debug.log*

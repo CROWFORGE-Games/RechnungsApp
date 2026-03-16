@@ -1726,6 +1726,10 @@ async function bootstrap() {
 
 async function initializeApp() {
   appVersion.textContent = APP_VERSION;
+  panelOverlay.hidden = true;
+  sendDialog.hidden = true;
+  authOverlay.hidden = true;
+  document.body.classList.remove("panel-open");
   loadAuthState();
   setAuthMode(state.auth.hasUser ? "login" : "register");
 

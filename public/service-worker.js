@@ -1,4 +1,4 @@
-const STATIC_CACHE = "rechnungsapp-static-v3";
+const STATIC_CACHE = "rechnungsapp-static-v4";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -34,6 +34,25 @@ self.addEventListener("fetch", (event) => {
 
   if (requestUrl.pathname.startsWith("/api/")) {
     event.respondWith(fetch(request));
+    return;
+  }
+
+  const isAppShellAsset =
+    requestUrl.origin === self.location.origin &&
+    ["/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest"].includes(
+      requestUrl.pathname
+    );
+
+  if (isAppShellAsset) {
+    event.respondWith(
+      fetch(request)
+        .then((networkResponse) => {
+          const responseClone = networkResponse.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, responseClone));
+          return networkResponse;
+        })
+        .catch(() => caches.match(request))
+    );
     return;
   }
 

@@ -65,10 +65,14 @@ const authPasswordConfirmInput = document.getElementById("authPasswordConfirm");
 const authConfirmWrap = document.getElementById("authConfirmWrap");
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
-const closePreviewButton = document.getElementById("closePreviewButton");
+const openSignatureDialogButton = document.getElementById("openSignatureDialog");
 const sendInvoiceButton = document.getElementById("sendInvoiceButton");
 const sendPreviewCanvas = document.getElementById("sendPreviewCanvas");
 const sendPreviewContext = sendPreviewCanvas.getContext("2d");
+const signatureDialog = document.getElementById("signatureDialog");
+const closeSignatureDialogButton = document.getElementById("closeSignatureDialog");
+const cancelSignatureButton = document.getElementById("cancelSignatureButton");
+const confirmSignatureButton = document.getElementById("confirmSignatureButton");
 const signaturePad = document.getElementById("signaturePad");
 const signatureContext = signaturePad.getContext("2d");
 const clearSignatureButton = document.getElementById("clearSignature");
@@ -356,7 +360,20 @@ function openSendDialog() {
 
 function closeSendDialog() {
   sendDialog.hidden = true;
+  signatureDialog.hidden = true;
   if (authOverlay.hidden && state.openPanelId === null) {
+    document.body.classList.remove("panel-open");
+  }
+}
+
+function openSignatureDialog() {
+  signatureDialog.hidden = false;
+  document.body.classList.add("panel-open");
+}
+
+function closeSignatureDialog() {
+  signatureDialog.hidden = true;
+  if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
 }
@@ -827,7 +844,7 @@ function renderInvoiceItems() {
             </div>
           </td>
           <td data-label="Menge">
-            <input name="quantity" type="number" min="0" step="0.01" value="${escapeHtml(
+            <input name="quantity" type="number" min="0" step="0.5" value="${escapeHtml(
               item.quantity
             )}" />
           </td>
@@ -1558,6 +1575,35 @@ async function sendInvoice() {
   }
 }
 
+async function prepareInvoiceForSend() {
+  if (!state.invoiceDraft.customerId) {
+    setStatus("Bitte zuerst einen Kunden auswählen.", "error");
+    return;
+  }
+
+  const validItems = state.invoiceDraft.items.filter(
+    (item) => String(item.description || "").trim() && toNumber(item.quantity) > 0
+  );
+  if (!validItems.length) {
+    setStatus("Bitte mindestens eine Leistung eintragen.", "error");
+    return;
+  }
+
+  createInvoiceButton.disabled = true;
+  createInvoiceButton.textContent = "Vorschau wird vorbereitet...";
+  try {
+    await renderCanvas();
+    refreshSendPreview();
+    openSendDialog();
+    setStatus("Rechnung vorbereitet. Bitte prüfen, bei Bedarf unterschreiben und danach senden.", "info");
+  } catch (error) {
+    setStatus(error.message || "Rechnung konnte nicht vorbereitet werden.", "error");
+  } finally {
+    createInvoiceButton.disabled = false;
+    createInvoiceButton.textContent = "Rechnung erstellen";
+  }
+}
+
 async function handleAuthSubmit(event) {
   event.preventDefault();
 
@@ -1625,6 +1671,10 @@ function bindPanelButtons() {
   panelOverlay.addEventListener("click", closePanels);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (!signatureDialog.hidden) {
+        closeSignatureDialog();
+        return;
+      }
       if (!sendDialog.hidden) {
         closeSendDialog();
         return;
@@ -1666,7 +1716,24 @@ function bindSignaturePad() {
 
 function bindDialogs() {
   closeSendDialogButton.addEventListener("click", closeSendDialog);
-  closePreviewButton.addEventListener("click", closeSendDialog);
+  openSignatureDialogButton.addEventListener("click", () => {
+    clearSignaturePad();
+    openSignatureDialog();
+  });
+  closeSignatureDialogButton.addEventListener("click", closeSignatureDialog);
+  cancelSignatureButton.addEventListener("click", closeSignatureDialog);
+  confirmSignatureButton.addEventListener("click", async () => {
+    state.invoiceDraft.signatureDataUrl = hasSignatureStroke ? signaturePad.toDataURL("image/png") : "";
+    await renderCanvas();
+    refreshSendPreview();
+    closeSignatureDialog();
+    setStatus(
+      state.invoiceDraft.signatureDataUrl
+        ? "Unterschrift übernommen."
+        : "Unterschriftsfenster geschlossen.",
+      "success"
+    );
+  });
   clearSignatureButton.addEventListener("click", clearSignaturePad);
   sendInvoiceButton.addEventListener("click", sendInvoice);
 }
@@ -1683,7 +1750,7 @@ function bindStaticEvents() {
   invoiceItemsTable.addEventListener("change", handleInvoiceTableChange);
   invoiceItemsTable.addEventListener("click", handleInvoiceTableClick);
   addInvoiceItemButton.addEventListener("click", addInvoiceItem);
-  createInvoiceButton.addEventListener("click", prepareInvoice);
+  createInvoiceButton.addEventListener("click", prepareInvoiceForSend);
   resetCustomerFormButton.addEventListener("click", resetCustomerForm);
   resetArticleFormButton.addEventListener("click", resetArticleForm);
   invoiceCustomer.addEventListener("change", handleInvoiceMetaInput);
@@ -1728,6 +1795,7 @@ async function initializeApp() {
   appVersion.textContent = APP_VERSION;
   panelOverlay.hidden = true;
   sendDialog.hidden = true;
+  signatureDialog.hidden = true;
   authOverlay.hidden = true;
   document.body.classList.remove("panel-open");
   loadAuthState();

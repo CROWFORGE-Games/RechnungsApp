@@ -1,8 +1,18 @@
+const APP_VERSION = "V0.0.1";
+
 const STORAGE_KEYS = {
-  navCollapsed: "rechnungsapp.navCollapsed"
+  navCollapsed: "rechnungsapp.navCollapsed",
+  authUsername: "rechnungsapp.auth.username",
+  authPasswordHash: "rechnungsapp.auth.passwordHash",
+  autoLoginUser: "rechnungsapp.auth.autoLoginUser"
 };
 
 const state = {
+  auth: {
+    hasUser: false,
+    authenticated: false,
+    username: ""
+  },
   settings: null,
   customers: [],
   articles: [],
@@ -14,12 +24,14 @@ const state = {
     dueDate: addDays(14),
     reference: "",
     notes: "",
-    items: [createEmptyItem()]
+    items: [createEmptyItem()],
+    signatureDataUrl: ""
   }
 };
 
 const appShell = document.getElementById("appShell");
 const statusBanner = document.getElementById("statusBanner");
+const appVersion = document.getElementById("appVersion");
 const templateHint = document.getElementById("templateHint");
 const panelOverlay = document.getElementById("panelOverlay");
 const settingsForm = document.getElementById("settingsForm");
@@ -41,6 +53,25 @@ const canvasContext = invoiceCanvas.getContext("2d");
 const addInvoiceItemButton = document.getElementById("addInvoiceItem");
 const createInvoiceButton = document.getElementById("createInvoiceButton");
 const navToggle = document.getElementById("navToggle");
+const authOverlay = document.getElementById("authOverlay");
+const authForm = document.getElementById("authForm");
+const authModeKicker = document.getElementById("authModeKicker");
+const authTitle = document.getElementById("authTitle");
+const authText = document.getElementById("authText");
+const authSubmit = document.getElementById("authSubmit");
+const authUsernameInput = document.getElementById("authUsername");
+const authPasswordInput = document.getElementById("authPassword");
+const authPasswordConfirmInput = document.getElementById("authPasswordConfirm");
+const authConfirmWrap = document.getElementById("authConfirmWrap");
+const sendDialog = document.getElementById("sendDialog");
+const closeSendDialogButton = document.getElementById("closeSendDialog");
+const closePreviewButton = document.getElementById("closePreviewButton");
+const sendInvoiceButton = document.getElementById("sendInvoiceButton");
+const sendPreviewCanvas = document.getElementById("sendPreviewCanvas");
+const sendPreviewContext = sendPreviewCanvas.getContext("2d");
+const signaturePad = document.getElementById("signaturePad");
+const signatureContext = signaturePad.getContext("2d");
+const clearSignatureButton = document.getElementById("clearSignature");
 const railButtons = [...document.querySelectorAll(".rail-button")];
 const panelElements = [...document.querySelectorAll(".side-panel")];
 const openPanelButtons = [...document.querySelectorAll("[data-open-panel]")];
@@ -117,6 +148,8 @@ const logoState = {
 
 let previewTimer = 0;
 let renderNonce = 0;
+let isSignatureDrawing = false;
+let hasSignatureStroke = false;
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -170,7 +203,11 @@ function formatDate(value) {
     return "";
   }
 
-  return new Intl.DateTimeFormat("de-AT").format(new Date(value));
+  return new Intl.DateTimeFormat("de-AT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(new Date(value));
 }
 
 function escapeHtml(value) {
@@ -297,17 +334,69 @@ function closePanels() {
   state.openPanelId = null;
   setActiveRail(null);
   panelOverlay.hidden = true;
-  document.body.classList.remove("panel-open");
-
   panelElements.forEach((panel) => {
     panel.classList.remove("is-open");
     panel.setAttribute("aria-hidden", "true");
   });
+  if (authOverlay.hidden && sendDialog.hidden) {
+    document.body.classList.remove("panel-open");
+  }
 }
 
 function closePanelsIfMobile() {
   if (window.innerWidth <= 1180) {
     closePanels();
+  }
+}
+
+function openSendDialog() {
+  sendDialog.hidden = false;
+  document.body.classList.add("panel-open");
+}
+
+function closeSendDialog() {
+  sendDialog.hidden = true;
+  if (authOverlay.hidden && state.openPanelId === null) {
+    document.body.classList.remove("panel-open");
+  }
+}
+
+async function hashPassword(value) {
+  const input = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", input);
+  return [...new Uint8Array(digest)].map((chunk) => chunk.toString(16).padStart(2, "0")).join("");
+}
+
+function loadAuthState() {
+  const storedUsername = window.localStorage.getItem(STORAGE_KEYS.authUsername) || "";
+  const storedHash = window.localStorage.getItem(STORAGE_KEYS.authPasswordHash) || "";
+  const rememberedUser = window.localStorage.getItem(STORAGE_KEYS.autoLoginUser) || "";
+  state.auth.hasUser = Boolean(storedUsername && storedHash);
+  state.auth.username = storedUsername;
+  state.auth.authenticated = state.auth.hasUser && rememberedUser === storedUsername;
+}
+
+function setAuthMode(mode) {
+  const isRegister = mode === "register";
+  authModeKicker.textContent = isRegister ? "Erster Start" : "Anmeldung";
+  authTitle.textContent = isRegister ? "Benutzer registrieren" : "Anmelden";
+  authText.textContent = isRegister
+    ? "Lege einmal Benutzername und Kennwort fest. Danach meldet sich die App über Autologin automatisch an."
+    : "Melde dich mit deinem Benutzerkonto an. Wenn bereits ein Login gespeichert wurde, erfolgt der Einstieg automatisch.";
+  authSubmit.textContent = isRegister ? "Registrieren" : "Anmelden";
+  authConfirmWrap.hidden = !isRegister;
+  authPasswordConfirmInput.required = isRegister;
+}
+
+function showAuthOverlay() {
+  authOverlay.hidden = false;
+  document.body.classList.add("panel-open");
+}
+
+function hideAuthOverlay() {
+  authOverlay.hidden = true;
+  if (state.openPanelId === null && sendDialog.hidden) {
+    document.body.classList.remove("panel-open");
   }
 }
 
@@ -318,6 +407,47 @@ function loadImage(src) {
     image.onerror = reject;
     image.src = `${src}?v=${Date.now()}`;
   });
+}
+
+function loadInlineImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+function clearSignaturePad() {
+  signatureContext.clearRect(0, 0, signaturePad.width, signaturePad.height);
+  signatureContext.fillStyle = "#ffffff";
+  signatureContext.fillRect(0, 0, signaturePad.width, signaturePad.height);
+  signatureContext.strokeStyle = "rgba(39, 84, 56, 0.18)";
+  signatureContext.lineWidth = 2;
+  signatureContext.beginPath();
+  signatureContext.moveTo(36, signaturePad.height - 34);
+  signatureContext.lineTo(signaturePad.width - 36, signaturePad.height - 34);
+  signatureContext.stroke();
+  signatureContext.strokeStyle = "#183126";
+  signatureContext.lineWidth = 2.6;
+  signatureContext.lineCap = "round";
+  signatureContext.lineJoin = "round";
+  hasSignatureStroke = false;
+}
+
+function signaturePointFromEvent(event) {
+  const rect = signaturePad.getBoundingClientRect();
+  const scaleX = signaturePad.width / rect.width;
+  const scaleY = signaturePad.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY
+  };
+}
+
+function refreshSendPreview() {
+  sendPreviewContext.clearRect(0, 0, sendPreviewCanvas.width, sendPreviewCanvas.height);
+  sendPreviewContext.drawImage(invoiceCanvas, 0, 0, sendPreviewCanvas.width, sendPreviewCanvas.height);
 }
 
 async function loadTemplate() {
@@ -543,7 +673,6 @@ function calculateItem(item) {
   const taxRate = toNumber(item.taxRate, 0);
   const net = roundCurrency(quantity * unitPrice * Math.max(0, 1 - discount / 100));
   const tax = roundCurrency(net * (taxRate / 100));
-
   return {
     net,
     tax,
@@ -893,7 +1022,6 @@ function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = I
 function drawFallbackLayout(context) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
-
   context.strokeStyle = "#222222";
   context.lineWidth = 1.2;
   context.beginPath();
@@ -902,7 +1030,6 @@ function drawFallbackLayout(context) {
   context.moveTo(62, 980);
   context.lineTo(734, 980);
   context.stroke();
-
   context.fillStyle = "#f5f5f5";
   context.strokeStyle = "#c9c9c9";
   context.lineWidth = 1;
@@ -910,7 +1037,6 @@ function drawFallbackLayout(context) {
   context.roundRect(438, 162, 280, 150, 6);
   context.fill();
   context.stroke();
-
   context.fillStyle = "#d5d5d5";
   context.fillRect(64, 392, 674, 22);
 }
@@ -938,7 +1064,6 @@ async function renderCanvas() {
   }
 
   canvasContext.clearRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
-
   if (template) {
     canvasContext.drawImage(template, 0, 0, invoiceCanvas.width, invoiceCanvas.height);
   } else {
@@ -965,7 +1090,6 @@ async function renderCanvas() {
 
   canvasContext.fillStyle = "#101010";
   canvasContext.textBaseline = "top";
-
   canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillStyle = "#2e2e2e";
   drawWrappedText(canvasContext, business.senderLine || "", 66, 164, 340, 14, 2);
@@ -988,13 +1112,12 @@ async function renderCanvas() {
   canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillText("Kundeninfo", 446, 180);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
-  const infoLines = [
+  [
     `Kunden-Nr.:   ${customer?.customerNumber || "-"}`,
     `Telefon:      ${customer?.phone || business.phone || "-"}`,
     `eMail:        ${customer?.email || "-"}`,
     `UID-Nr.:      ${customer?.uid || business.uid || "-"}`
-  ];
-  infoLines.forEach((line, index) => {
+  ].forEach((line, index) => {
     canvasContext.fillText(line, 446, 212 + index * 22);
   });
 
@@ -1023,13 +1146,17 @@ async function renderCanvas() {
   let itemY = 430;
   validItems.forEach((item, index) => {
     const current = calculateItem(item);
+    const hasDiscount = toNumber(item.discount) > 0;
     canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.fillText(String(index + 1), 68, itemY);
-
     canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.fillText(item.description, 98, itemY);
     canvasContext.font = 'bold 12px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.fillText(`Art.-Nr.: ${item.articleNumber || "-"}`, 98, itemY + 18);
+    if (hasDiscount) {
+      canvasContext.font = '12px Calibri, Candara, "Segoe UI", sans-serif';
+      canvasContext.fillText(`Rabatt: ${formatAmount(item.discount)} %`, 98, itemY + 34);
+    }
 
     canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.textAlign = "right";
@@ -1037,8 +1164,7 @@ async function renderCanvas() {
     canvasContext.fillText(`${formatAmount(item.quantity)} Std.`, 644, itemY);
     canvasContext.fillText(formatAmount(current.net), 710, itemY);
     canvasContext.textAlign = "left";
-
-    itemY += 54;
+    itemY += hasDiscount ? 70 : 54;
   });
 
   canvasContext.strokeStyle = "#202020";
@@ -1049,15 +1175,12 @@ async function renderCanvas() {
   canvasContext.stroke();
 
   const totalsStartY = Math.max(itemY + 18, 500);
-  const labelX = 494;
-  const amountX = 734;
-
   const drawAmountLine = (label, value, y, bold = false) => {
     canvasContext.textAlign = "left";
     canvasContext.font = `${bold ? "bold " : ""}14px Calibri, Candara, "Segoe UI", sans-serif`;
-    canvasContext.fillText(label, labelX, y);
+    canvasContext.fillText(label, 494, y);
     canvasContext.textAlign = "right";
-    canvasContext.fillText(value, amountX, y);
+    canvasContext.fillText(value, 734, y);
   };
 
   drawAmountLine("Netto", formatAmount(totals.subtotal), totalsStartY);
@@ -1088,8 +1211,23 @@ async function renderCanvas() {
     .filter(Boolean)
     .join("; ");
   if (footerLine) {
-    canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.fillText(footerLine, 58, 997);
+  }
+
+  if (state.invoiceDraft.signatureDataUrl) {
+    const signatureImage = await loadInlineImage(state.invoiceDraft.signatureDataUrl).catch(
+      () => null
+    );
+    if (signatureImage) {
+      const maxWidth = 150;
+      const maxHeight = 56;
+      const ratio = Math.min(maxWidth / signatureImage.width, maxHeight / signatureImage.height, 1);
+      const drawWidth = signatureImage.width * ratio;
+      const drawHeight = signatureImage.height * ratio;
+      canvasContext.drawImage(signatureImage, 560, 900, drawWidth, drawHeight);
+      canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
+      canvasContext.fillText("Kundenunterschrift", 560, 962);
+    }
   }
 }
 
@@ -1115,7 +1253,7 @@ async function saveSettings(event) {
     populateSettingsForm();
     setStatus("Einstellungen gespeichert.", "success");
     schedulePreviewRender();
-    closePanelsIfMobile();
+    closePanels();
   } catch (error) {
     setStatus(error.message || "Einstellungen konnten nicht gespeichert werden.", "error");
   }
@@ -1126,22 +1264,15 @@ async function saveCustomer(event) {
   const customer = readCustomerForm();
 
   try {
-    const response = await api(
-      customer.id ? `/api/customers/${customer.id}` : "/api/customers",
-      {
-        method: customer.id ? "PUT" : "POST",
-        body: JSON.stringify({ customer })
-      }
-    );
+    const response = await api(customer.id ? `/api/customers/${customer.id}` : "/api/customers", {
+      method: customer.id ? "PUT" : "POST",
+      body: JSON.stringify({ customer })
+    });
 
     const savedCustomer = response.customer;
-    if (customer.id) {
-      state.customers = state.customers.map((entry) =>
-        entry.id === savedCustomer.id ? savedCustomer : entry
-      );
-    } else {
-      state.customers = [...state.customers, savedCustomer];
-    }
+    state.customers = customer.id
+      ? state.customers.map((entry) => (entry.id === savedCustomer.id ? savedCustomer : entry))
+      : [...state.customers, savedCustomer];
 
     state.customers = sortByNumericField(state.customers, "customerNumber");
     state.invoiceDraft.customerId = savedCustomer.id;
@@ -1167,13 +1298,9 @@ async function saveArticle(event) {
     });
 
     const savedArticle = normalizeArticle(response.article);
-    if (article.id) {
-      state.articles = state.articles.map((entry) =>
-        entry.id === savedArticle.id ? savedArticle : entry
-      );
-    } else {
-      state.articles = [...state.articles, savedArticle];
-    }
+    state.articles = article.id
+      ? state.articles.map((entry) => (entry.id === savedArticle.id ? savedArticle : entry))
+      : [...state.articles, savedArticle];
 
     state.articles = sortByNumericField(state.articles, "number");
     syncDraftItemsFromArticle(savedArticle.id, savedArticle);
@@ -1194,8 +1321,7 @@ async function handleCustomerTableClick(event) {
     return;
   }
 
-  const customerId = actionButton.dataset.id;
-  const customer = state.customers.find((entry) => entry.id === customerId);
+  const customer = state.customers.find((entry) => entry.id === actionButton.dataset.id);
   if (!customer) {
     return;
   }
@@ -1206,19 +1332,13 @@ async function handleCustomerTableClick(event) {
     return;
   }
 
-  if (actionButton.dataset.action === "delete-customer") {
-    const confirmed = window.confirm(`Kunde "${customer.name}" wirklich löschen?`);
-    if (!confirmed) {
-      return;
-    }
-
+  if (window.confirm(`Kunde "${customer.name}" wirklich löschen?`)) {
     try {
       await api(`/api/customers/${customer.id}`, { method: "DELETE" });
       state.customers = state.customers.filter((entry) => entry.id !== customer.id);
       if (state.invoiceDraft.customerId === customer.id) {
         state.invoiceDraft.customerId = state.customers[0]?.id || "";
       }
-
       renderCustomers();
       renderCustomerOptions();
       schedulePreviewRender();
@@ -1235,8 +1355,7 @@ async function handleArticleTableClick(event) {
     return;
   }
 
-  const articleId = actionButton.dataset.id;
-  const article = state.articles.find((entry) => entry.id === articleId);
+  const article = state.articles.find((entry) => entry.id === actionButton.dataset.id);
   if (!article) {
     return;
   }
@@ -1247,12 +1366,7 @@ async function handleArticleTableClick(event) {
     return;
   }
 
-  if (actionButton.dataset.action === "delete-article") {
-    const confirmed = window.confirm(`Leistung "${article.name}" wirklich löschen?`);
-    if (!confirmed) {
-      return;
-    }
-
+  if (window.confirm(`Leistung "${article.name}" wirklich löschen?`)) {
     try {
       await api(`/api/articles/${article.id}`, { method: "DELETE" });
       state.articles = state.articles.filter((entry) => entry.id !== article.id);
@@ -1334,11 +1448,9 @@ function handleInvoiceTableClick(event) {
   }
 
   const row = button.closest("tr[data-index]");
-  if (!row) {
-    return;
+  if (row) {
+    removeInvoiceItem(Number(row.dataset.index));
   }
-
-  removeInvoiceItem(Number(row.dataset.index));
 }
 
 function handleInvoiceMetaInput() {
@@ -1352,14 +1464,12 @@ function handleInvoiceMetaInput() {
 
 function handleArticleFormLiveInput() {
   const articleId = articleFields.id.value.trim();
-  if (!articleId) {
-    return;
+  if (articleId) {
+    syncDraftItemsFromArticle(articleId, readArticleForm());
   }
-
-  syncDraftItemsFromArticle(articleId, readArticleForm());
 }
 
-async function createInvoice() {
+async function prepareInvoice() {
   if (!state.invoiceDraft.customerId) {
     setStatus("Bitte zuerst einen Kunden auswählen.", "error");
     return;
@@ -1374,33 +1484,53 @@ async function createInvoice() {
   }
 
   createInvoiceButton.disabled = true;
-  createInvoiceButton.textContent = "Rechnung wird erstellt...";
+  createInvoiceButton.textContent = "Vorschau wird vorbereitet...";
+  try {
+    state.invoiceDraft.signatureDataUrl = "";
+    await renderCanvas();
+    refreshSendPreview();
+    clearSignaturePad();
+    openSendDialog();
+    setStatus("Rechnung vorbereitet. Bitte prüfen, unterschreiben und danach senden.", "info");
+  } catch (error) {
+    setStatus(error.message || "Rechnung konnte nicht vorbereitet werden.", "error");
+  } finally {
+    createInvoiceButton.disabled = false;
+    createInvoiceButton.textContent = "Rechnung erstellen";
+  }
+}
+
+async function sendInvoice() {
+  sendInvoiceButton.disabled = true;
+  sendInvoiceButton.textContent = "Rechnung wird gesendet...";
 
   try {
+    state.invoiceDraft.signatureDataUrl = hasSignatureStroke ? signaturePad.toDataURL("image/png") : "";
     await renderCanvas();
-    const payload = {
-      customerId: state.invoiceDraft.customerId,
-      issueDate: state.invoiceDraft.issueDate,
-      dueDate: state.invoiceDraft.dueDate,
-      reference: state.invoiceDraft.reference,
-      notes: state.invoiceDraft.notes,
-      title: state.settings?.invoice?.title || "Rechnung",
-      items: state.invoiceDraft.items.map((item) => ({
-        ...item,
-        unit: "Stunden"
-      })),
-      imageDataUrl: invoiceCanvas.toDataURL("image/png")
-    };
+    refreshSendPreview();
 
     const response = await api("/api/invoices", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        customerId: state.invoiceDraft.customerId,
+        issueDate: state.invoiceDraft.issueDate,
+        dueDate: state.invoiceDraft.dueDate,
+        reference: state.invoiceDraft.reference,
+        notes: state.invoiceDraft.notes,
+        title: state.settings?.invoice?.title || "Rechnung",
+        items: state.invoiceDraft.items.map((item) => ({
+          ...item,
+          unit: "Stunden"
+        })),
+        imageDataUrl: invoiceCanvas.toDataURL("image/png")
+      })
     });
 
     state.invoices = [response.invoice, ...state.invoices];
     state.settings = response.settings;
     populateSettingsForm();
     renderInvoiceHistory();
+    closeSendDialog();
     setStatus(
       response.email?.message || "Rechnung erstellt.",
       response.email?.status === "failed" ? "error" : "success"
@@ -1413,18 +1543,59 @@ async function createInvoice() {
       dueDate: addDays(14),
       reference: "",
       notes: "",
-      items: [createEmptyItem()]
+      items: [createEmptyItem()],
+      signatureDataUrl: ""
     };
     syncInvoiceMetaInputs();
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
   } catch (error) {
-    setStatus(error.message || "Rechnung konnte nicht erstellt werden.", "error");
+    setStatus(error.message || "Rechnung konnte nicht gesendet werden.", "error");
   } finally {
-    createInvoiceButton.disabled = false;
-    createInvoiceButton.textContent = "Rechnung erstellen und senden";
+    sendInvoiceButton.disabled = false;
+    sendInvoiceButton.textContent = "Senden";
   }
+}
+
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+
+  const username = authUsernameInput.value.trim();
+  const password = authPasswordInput.value;
+  const confirmPassword = authPasswordConfirmInput.value;
+  const isRegister = !state.auth.hasUser;
+
+  if (!username || !password) {
+    setStatus("Bitte Benutzername und Kennwort eingeben.", "error");
+    return;
+  }
+
+  if (isRegister && password !== confirmPassword) {
+    setStatus("Die Kennwörter stimmen nicht überein.", "error");
+    return;
+  }
+
+  const passwordHash = await hashPassword(password);
+  if (isRegister) {
+    window.localStorage.setItem(STORAGE_KEYS.authUsername, username);
+    window.localStorage.setItem(STORAGE_KEYS.authPasswordHash, passwordHash);
+  } else {
+    const storedUsername = window.localStorage.getItem(STORAGE_KEYS.authUsername) || "";
+    const storedHash = window.localStorage.getItem(STORAGE_KEYS.authPasswordHash) || "";
+    if (storedUsername !== username || storedHash !== passwordHash) {
+      setStatus("Benutzername oder Kennwort ist nicht korrekt.", "error");
+      return;
+    }
+  }
+
+  window.localStorage.setItem(STORAGE_KEYS.autoLoginUser, username);
+  state.auth.hasUser = true;
+  state.auth.authenticated = true;
+  state.auth.username = username;
+  authForm.reset();
+  hideAuthOverlay();
+  await bootstrap();
 }
 
 function registerServiceWorker() {
@@ -1454,9 +1625,50 @@ function bindPanelButtons() {
   panelOverlay.addEventListener("click", closePanels);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (!sendDialog.hidden) {
+        closeSendDialog();
+        return;
+      }
       closePanels();
     }
   });
+}
+
+function bindSignaturePad() {
+  clearSignaturePad();
+
+  signaturePad.addEventListener("pointerdown", (event) => {
+    isSignatureDrawing = true;
+    const point = signaturePointFromEvent(event);
+    signatureContext.beginPath();
+    signatureContext.moveTo(point.x, point.y);
+    hasSignatureStroke = true;
+  });
+
+  signaturePad.addEventListener("pointermove", (event) => {
+    if (!isSignatureDrawing) {
+      return;
+    }
+
+    const point = signaturePointFromEvent(event);
+    signatureContext.lineTo(point.x, point.y);
+    signatureContext.stroke();
+  });
+
+  const stopDrawing = () => {
+    isSignatureDrawing = false;
+  };
+
+  signaturePad.addEventListener("pointerup", stopDrawing);
+  signaturePad.addEventListener("pointerleave", stopDrawing);
+  signaturePad.addEventListener("pointercancel", stopDrawing);
+}
+
+function bindDialogs() {
+  closeSendDialogButton.addEventListener("click", closeSendDialog);
+  closePreviewButton.addEventListener("click", closeSendDialog);
+  clearSignatureButton.addEventListener("click", clearSignaturePad);
+  sendInvoiceButton.addEventListener("click", sendInvoice);
 }
 
 function bindStaticEvents() {
@@ -1471,15 +1683,15 @@ function bindStaticEvents() {
   invoiceItemsTable.addEventListener("change", handleInvoiceTableChange);
   invoiceItemsTable.addEventListener("click", handleInvoiceTableClick);
   addInvoiceItemButton.addEventListener("click", addInvoiceItem);
-  createInvoiceButton.addEventListener("click", createInvoice);
+  createInvoiceButton.addEventListener("click", prepareInvoice);
   resetCustomerFormButton.addEventListener("click", resetCustomerForm);
   resetArticleFormButton.addEventListener("click", resetArticleForm);
-
   invoiceCustomer.addEventListener("change", handleInvoiceMetaInput);
   issueDateInput.addEventListener("input", handleInvoiceMetaInput);
   dueDateInput.addEventListener("input", handleInvoiceMetaInput);
   invoiceReferenceInput.addEventListener("input", handleInvoiceMetaInput);
   invoiceNotesInput.addEventListener("input", handleInvoiceMetaInput);
+  authForm.addEventListener("submit", handleAuthSubmit);
 }
 
 async function bootstrap() {
@@ -1488,10 +1700,7 @@ async function bootstrap() {
     const response = await api("/api/bootstrap");
     state.settings = response.settings;
     state.customers = sortByNumericField(response.customers || [], "customerNumber");
-    state.articles = sortByNumericField(
-      (response.articles || []).map(normalizeArticle),
-      "number"
-    );
+    state.articles = sortByNumericField((response.articles || []).map(normalizeArticle), "number");
     state.invoices = response.invoices || [];
 
     if (!state.invoiceDraft.customerId) {
@@ -1515,8 +1724,25 @@ async function bootstrap() {
   }
 }
 
+async function initializeApp() {
+  appVersion.textContent = APP_VERSION;
+  loadAuthState();
+  setAuthMode(state.auth.hasUser ? "login" : "register");
+
+  if (state.auth.authenticated) {
+    hideAuthOverlay();
+    await bootstrap();
+    return;
+  }
+
+  showAuthOverlay();
+  setStatus(state.auth.hasUser ? "Bitte anmelden." : "Bitte Benutzer registrieren.");
+}
+
 loadCollapsedState();
 bindPanelButtons();
+bindSignaturePad();
+bindDialogs();
 bindStaticEvents();
 registerServiceWorker();
-bootstrap();
+initializeApp();

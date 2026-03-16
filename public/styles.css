@@ -77,6 +77,19 @@ textarea {
   justify-content: flex-end;
 }
 
+.tool-rail__brand-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 6px;
+}
+
+.tool-rail__brand {
+  display: block;
+  width: min(100%, 220px);
+  height: auto;
+  object-fit: contain;
+}
+
 .nav-toggle {
   display: inline-grid;
   gap: 4px;
@@ -171,17 +184,32 @@ textarea {
 }
 
 .app-shell.nav-collapsed .rail-label,
-.app-shell.nav-collapsed .hero-status {
+.app-shell.nav-collapsed .tool-rail__brand-wrap,
+.app-shell.nav-collapsed .tool-rail__footer {
   display: none;
 }
 
-.hero-status {
+.tool-rail__footer {
   margin-top: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.hero-status {
   padding: 16px;
   border-radius: 20px;
   background: rgba(47, 111, 102, 0.1);
   color: var(--accent-cool);
   font-weight: 700;
+}
+
+.app-version {
+  padding: 0 8px;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
 }
 
 .content-shell {
@@ -191,7 +219,10 @@ textarea {
 .main-card,
 .side-card,
 .preview-card,
-.side-panel {
+.side-panel,
+.auth-card,
+.dialog-card,
+.signature-card {
   border: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow);
@@ -246,6 +277,44 @@ h3 {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.auth-overlay,
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(20, 34, 28, 0.4);
+  backdrop-filter: blur(10px);
+  z-index: 60;
+}
+
+.auth-card,
+.dialog-card {
+  width: min(100%, 860px);
+  padding: 24px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.auth-card {
+  width: min(100%, 560px);
+}
+
+.auth-card__logo {
+  display: block;
+  width: min(100%, 220px);
+  margin: 0 auto 12px;
+}
+
+.auth-grid {
+  margin-top: 18px;
+}
+
+.auth-actions {
+  justify-content: flex-end;
 }
 
 .invoice-meta-grid,
@@ -519,6 +588,52 @@ th {
   background: white;
 }
 
+.dialog-preview {
+  margin-top: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(39, 84, 56, 0.12);
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+#sendPreviewCanvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: white;
+}
+
+.signature-card {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(247, 252, 249, 0.92);
+}
+
+.signature-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+#signaturePad {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 18px;
+  border: 1px dashed rgba(39, 84, 56, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 250, 246, 0.95));
+  touch-action: none;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 .history-list {
   display: grid;
   gap: 12px;
@@ -616,8 +731,12 @@ body.panel-open {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .app-shell.nav-collapsed .rail-label,
-  .app-shell.nav-collapsed .hero-status {
+  .app-shell.nav-collapsed .tool-rail__brand-wrap,
+  .app-shell.nav-collapsed .tool-rail__footer {
+    display: grid;
+  }
+
+  .app-shell.nav-collapsed .rail-label {
     display: inline;
   }
 
@@ -658,6 +777,10 @@ body.panel-open {
 
   .tool-rail__actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tool-rail__brand {
+    width: min(100%, 180px);
   }
 
   .invoice-toolbar,
@@ -744,5 +867,11 @@ body.panel-open {
 
   .side-panel.is-open {
     transform: translateY(0);
+  }
+
+  .signature-card__head,
+  .dialog-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

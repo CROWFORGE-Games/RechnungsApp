@@ -224,8 +224,9 @@ function getMailSettings(settings) {
       String(process.env.SMTP_SECURE || settings.smtp.secure || "false").toLowerCase() === "true",
     user: process.env.SMTP_USER || settings.smtp.user,
     pass: process.env.SMTP_PASS || settings.smtp.pass,
-    fromEmail: process.env.SMTP_FROM || settings.smtp.fromEmail || settings.smtp.user,
-    ccEmail: process.env.SMTP_CC || settings.smtp.ccEmail
+    fromEmail:
+      process.env.SMTP_FROM || settings.business.email || settings.smtp.fromEmail || settings.smtp.user,
+    ccEmail: process.env.SMTP_CC || settings.business.email || settings.smtp.ccEmail
   };
 }
 

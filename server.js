@@ -1127,13 +1127,12 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
-await ensureDataFiles();
-
 export { app, ensureDataFiles };
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
 if (isDirectRun) {
+  await ensureDataFiles();
   app.listen(PORT, HOST, () => {
     const interfaces = os.networkInterfaces();
     const urls = [`http://localhost:${PORT}`];

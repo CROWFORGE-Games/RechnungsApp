@@ -29,6 +29,10 @@ const LOGO_KEYS = {
   invoice: "assets/KaindlBanner.png",
   app: "assets/KaindlLogo.png"
 };
+const PRESET_USERS = [
+  { username: "admin", password: "admin" },
+  { username: "kaindl_daniel", password: "admin" }
+];
 
 const DEFAULT_STORE = {
   settings: {
@@ -178,10 +182,30 @@ function createUserRecord({
   };
 }
 
+function ensurePresetUsers(users = []) {
+  const normalizedUsers = Array.isArray(users) ? [...users] : [];
+
+  PRESET_USERS.forEach(({ username, password }) => {
+    const existingIndex = normalizedUsers.findIndex((entry) => entry.username === username);
+    if (existingIndex >= 0) {
+      normalizedUsers[existingIndex] = createUserRecord({
+        ...normalizedUsers[existingIndex],
+        username,
+        passwordHash: hashPassword(password)
+      });
+      return;
+    }
+
+    normalizedUsers.push(createUserRecord({ username, password }));
+  });
+
+  return normalizedUsers;
+}
+
 function mergeStore(raw = {}) {
   if (Array.isArray(raw.users)) {
     return {
-      users: raw.users.map((user) => createUserRecord(user)),
+      users: ensurePresetUsers(raw.users.map((user) => createUserRecord(user))),
       sessions: Array.isArray(raw.sessions) ? raw.sessions : []
     };
   }
@@ -202,14 +226,14 @@ function mergeStore(raw = {}) {
   });
 
   return {
-    users: [migratedUser],
+    users: ensurePresetUsers([migratedUser]),
     sessions: []
   };
 }
 
 function createInitialStore() {
   return {
-    users: [createUserRecord({ username: "admin", password: "admin" })],
+    users: ensurePresetUsers([]),
     sessions: []
   };
 }
@@ -945,25 +969,9 @@ app.post("/api/auth/login", async (req, res, next) => {
 
 app.post("/api/auth/register", async (req, res, next) => {
   try {
-    const store = await readStore();
-    const username = String(req.body?.username || "").trim();
-    const password = String(req.body?.password || "");
-
-    if (!username || !password) {
-      res.status(400).json({ error: "Benutzername und Kennwort sind erforderlich." });
-      return;
-    }
-
-    if (findUserByUsername(store, username)) {
-      res.status(409).json({ error: "Dieser Benutzername ist bereits vergeben." });
-      return;
-    }
-
-    const user = createUserRecord({ username, password });
-    store.users.push(user);
-    const session = createSession(store, user.id);
-    await writeStore(store);
-    res.status(201).json({ ok: true, username: user.username, token: session.token });
+    res.status(403).json({
+      error: "Neue Benutzer werden derzeit nicht direkt in der App angelegt."
+    });
   } catch (error) {
     next(error);
   }
@@ -1021,23 +1029,6 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     };
     if (!incoming.smtp?.pass) {
       currentUser.settings.smtp.pass = currentPass;
-    }
-
-    const nextUsername = String(incoming.auth?.username || currentUser.username).trim() || currentUser.username;
-    const otherUser = req.store.users.find(
-      (entry) => entry.id !== currentUser.id && entry.username === nextUsername
-    );
-    if (otherUser) {
-      res.status(409).json({ error: "Dieser Benutzername ist bereits vergeben." });
-      return;
-    }
-
-    currentUser.username = nextUsername;
-    if (incoming.auth?.password) {
-      currentUser.passwordHash = hashPassword(incoming.auth.password);
-      req.store.sessions = req.store.sessions.filter(
-        (entry) => entry.userId !== currentUser.id || entry.token === req.session.token
-      );
     }
 
     currentUser.settings.smtp.port = Number(currentUser.settings.smtp.port || 587);

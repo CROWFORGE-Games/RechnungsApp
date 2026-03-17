@@ -513,15 +513,13 @@ async function loadAuthState() {
 }
 
 function setAuthMode(mode = "login") {
-  state.auth.mode = mode;
-  const isRegister = mode === "register";
-  authModeKicker.textContent = isRegister ? "Neuer Benutzer" : "Anmeldung";
-  authTitle.textContent = isRegister ? "Benutzer anlegen" : "Anmelden";
-  authText.textContent = isRegister
-    ? "Lege einen neuen Benutzer an. Kunden, Leistungen, Rechnungen und Einstellungen werden danach getrennt gespeichert."
+  state.auth.mode = "login";
+  authModeKicker.textContent = "Anmeldung";
+  authTitle.textContent = "Anmelden";
+  authText.textContent =
+    "Mit einem vorhandenen Benutzer anmelden. Verfuegbar sind admin und kaindl_daniel, jeweils mit dem Kennwort admin."; /*
     : "Mit deinem Benutzer anmelden. Nach dem Login werden deine eigenen Daten auf jedem Gerät wieder geladen.";
-  authSubmit.textContent = isRegister ? "Benutzer anlegen" : "Anmelden";
-  authSwitchModeButton.textContent = isRegister ? "Zum Login" : "Neuen Benutzer anlegen";
+  */ authSubmit.textContent = "Anmelden";
   return;
   /* legacy auth mode removed
   authModeKicker.textContent = isRegister ? "Erster Start" : "Anmeldung";
@@ -2022,7 +2020,7 @@ async function handleAuthSubmit(event) {
 
   try {
     const response = await api(
-      state.auth.mode === "register" ? "/api/auth/register" : "/api/auth/login",
+      "/api/auth/login",
       {
         method: "POST",
         body: JSON.stringify({ username, password })
@@ -2039,11 +2037,7 @@ async function handleAuthSubmit(event) {
     await bootstrap();
     return;
   } catch (error) {
-    const message =
-      error.message ||
-      (state.auth.mode === "register"
-        ? "Benutzer konnte nicht angelegt werden."
-        : "Benutzername oder Kennwort ist nicht korrekt.");
+    const message = error.message || "Benutzername oder Kennwort ist nicht korrekt.";
     setStatus(message, "error");
     window.alert(message);
     return;
@@ -2266,9 +2260,6 @@ function bindStaticEvents() {
   invoiceReferenceInput.addEventListener("input", handleInvoiceMetaInput);
   invoiceNotesInput.addEventListener("input", handleInvoiceMetaInput);
   authForm.addEventListener("submit", handleAuthSubmit);
-  authSwitchModeButton?.addEventListener("click", () => {
-    setAuthMode(state.auth.mode === "login" ? "register" : "login");
-  });
   logoutButton?.addEventListener("click", handleLogout);
 }
 
@@ -2324,6 +2315,7 @@ async function initializeApp() {
     setStatus("Anmeldedaten konnten nicht geladen werden.", "error");
   }
   setAuthMode("login");
+  settingsFields.authUsername?.closest("fieldset")?.setAttribute("hidden", "");
   updateSettingsAuthPasswordToggleLabel();
 
   authUsernameInput.value = state.auth.username || "";

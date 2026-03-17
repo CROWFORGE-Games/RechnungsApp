@@ -1,17 +1,12 @@
 let cachedHandler;
+const serverless = require("serverless-http");
 
 async function getHandler() {
   if (cachedHandler) {
     return cachedHandler;
   }
 
-  const [serverlessModule, serverModule] = await Promise.all([
-    import("serverless-http"),
-    import("../../server.js")
-  ]);
-
-  const serverless = serverlessModule.default || serverlessModule;
-  const { app, ensureDataFiles } = serverModule;
+  const { app, ensureDataFiles } = await import("../../server.js");
   const expressHandler = serverless(app, {
     basePath: "/.netlify/functions"
   });

@@ -23,6 +23,8 @@ const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const ASSET_STORAGE_DIR = path.join(STORAGE_ROOT, "assets");
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
+const GOOGLE_SHEETS_WEBAPP_URL = String(process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECRET || "").trim();
 const BLOB_STORE_NAME = "rechnungsapp";
 const STORE_BLOB_KEY = "store.json";
 const LOGO_KEYS = {
@@ -161,6 +163,10 @@ const DEFAULT_SETTINGS = {
   invoice: { ...DEFAULT_STORE.settings.invoice },
   email: { ...DEFAULT_STORE.settings.email }
 };
+
+function isGoogleSheetsSyncConfigured() {
+  return Boolean(GOOGLE_SHEETS_WEBAPP_URL && GOOGLE_SHEETS_WEBAPP_SECRET);
+}
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
@@ -530,6 +536,100 @@ function sanitizeArticle(input = {}) {
     unitPrice: roundCurrency(input.unitPrice || 0),
     taxRate: Number(input.taxRate ?? 20)
   };
+}
+
+function buildSheetSyncPayload(user) {
+  return {
+    username: user.username,
+    settings: mergeSettings(user.settings),
+    customers: user.customers.map((entry) => sanitizeCustomer(entry)),
+    articles: user.articles.map((entry) => sanitizeArticle(entry))
+  };
+}
+
+async function requestGoogleSheetsSync(action, payload = {}) {
+  if (!isGoogleSheetsSyncConfigured()) {
+    return null;
+  }
+
+  const response = await fetch(GOOGLE_SHEETS_WEBAPP_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      secret: GOOGLE_SHEETS_WEBAPP_SECRET,
+      action,
+      ...payload
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google-Sheets-Sync fehlgeschlagen (${response.status}).`);
+  }
+
+  return response.json();
+}
+
+function applyRemoteUserData(user, remoteData = {}) {
+  if (!remoteData || typeof remoteData !== "object") {
+    return user;
+  }
+
+  if (remoteData.settings) {
+    user.settings = mergeSettings(remoteData.settings);
+  }
+
+  if (Array.isArray(remoteData.customers)) {
+    user.customers = remoteData.customers.map((entry) => sanitizeCustomer(entry));
+  }
+
+  if (Array.isArray(remoteData.articles)) {
+    user.articles = remoteData.articles.map((entry) => sanitizeArticle(entry));
+  }
+
+  user.updatedAt = new Date().toISOString();
+  return user;
+}
+
+async function hydrateUserFromGoogleSheets(store, user) {
+  if (!isGoogleSheetsSyncConfigured()) {
+    return user;
+  }
+
+  try {
+    const response = await requestGoogleSheetsSync("getUserData", { username: user.username });
+    if (!response?.ok) {
+      return user;
+    }
+
+    if (!response.data) {
+      await syncUserToGoogleSheets(user);
+      return user;
+    }
+
+    applyRemoteUserData(user, response.data);
+    await writeStore(store);
+  } catch (error) {
+    console.error(`Google-Sheets-Import fehlgeschlagen (${user.username}).`, error);
+  }
+
+  return user;
+}
+
+async function syncUserToGoogleSheets(user) {
+  if (!isGoogleSheetsSyncConfigured()) {
+    return;
+  }
+
+  try {
+    await requestGoogleSheetsSync("upsertUserData", {
+      username: user.username,
+      data: buildSheetSyncPayload(user)
+    });
+  } catch (error) {
+    console.error(`Google-Sheets-Sync fehlgeschlagen (${user.username}).`, error);
+  }
 }
 
 function sanitizeItem(input = {}) {
@@ -1041,6 +1141,7 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
+    await hydrateUserFromGoogleSheets(req.store, req.user);
     res.json({
       settings: getUserSettingsForClient(req.user),
       customers: req.user.customers,
@@ -1145,6 +1246,7 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     currentUser.updatedAt = new Date().toISOString();
 
     await writeStore(req.store);
+    await syncUserToGoogleSheets(currentUser);
     res.json({ settings: getUserSettingsForClient(currentUser) });
   } catch (error) {
     next(error);
@@ -1165,6 +1267,7 @@ app.post("/api/customers", requireAuth, async (req, res, next) => {
     req.user.customers.push(customer);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
+    await syncUserToGoogleSheets(req.user);
     res.status(201).json({ customer });
   } catch (error) {
     next(error);
@@ -1186,6 +1289,7 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
     });
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
+    await syncUserToGoogleSheets(req.user);
     res.json({ customer: req.user.customers[index] });
   } catch (error) {
     next(error);
@@ -1197,6 +1301,7 @@ app.delete("/api/customers/:id", requireAuth, async (req, res, next) => {
     req.user.customers = req.user.customers.filter((entry) => entry.id !== req.params.id);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
+    await syncUserToGoogleSheets(req.user);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -1217,6 +1322,7 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
     req.user.articles.push(article);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
+    await syncUserToGoogleSheets(req.user);
     res.status(201).json({ article });
   } catch (error) {
     next(error);
@@ -1238,6 +1344,7 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
     });
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
+    await syncUserToGoogleSheets(req.user);
     res.json({ article: req.user.articles[index] });
   } catch (error) {
     next(error);
@@ -1249,6 +1356,7 @@ app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
     req.user.articles = req.user.articles.filter((entry) => entry.id !== req.params.id);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
+    await syncUserToGoogleSheets(req.user);
     res.status(204).end();
   } catch (error) {
     next(error);

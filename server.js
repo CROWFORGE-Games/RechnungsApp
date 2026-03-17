@@ -10,9 +10,16 @@ import { PDFDocument } from "pdf-lib";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_FILE = path.join(__dirname, "data", "store.json");
-const GENERATED_DIR = path.join(__dirname, "generated");
 const PUBLIC_DIR = path.join(__dirname, "public");
+const STORAGE_ROOT = process.env.STORAGE_DIR
+  ? path.resolve(process.env.STORAGE_DIR)
+  : path.join(__dirname, "data");
+const DATA_FILE = process.env.STORAGE_DIR
+  ? path.join(STORAGE_ROOT, "store.json")
+  : path.join(__dirname, "data", "store.json");
+const GENERATED_DIR = process.env.STORAGE_DIR
+  ? path.join(STORAGE_ROOT, "generated")
+  : path.join(__dirname, "generated");
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
 
@@ -45,6 +52,10 @@ const DEFAULT_STORE = {
       fromEmail: "",
       ccEmail: ""
     },
+    auth: {
+      username: "admin",
+      password: "admin"
+    },
     invoice: {
       title: "Rechnung",
       counterYear: new Date().getFullYear(),
@@ -61,6 +72,13 @@ const DEFAULT_STORE = {
   invoices: []
 };
 
+const DEFAULT_SETTINGS = {
+  business: { ...DEFAULT_STORE.settings.business },
+  smtp: { ...DEFAULT_STORE.settings.smtp },
+  invoice: { ...DEFAULT_STORE.settings.invoice },
+  email: { ...DEFAULT_STORE.settings.email }
+};
+
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 app.use("/generated", express.static(GENERATED_DIR));
@@ -70,29 +88,82 @@ function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
-function mergeStore(raw = {}) {
+function hashPassword(password) {
+  return crypto.createHash("sha256").update(String(password || "")).digest("hex");
+}
+
+function mergeSettings(raw = {}) {
   return {
-    settings: {
-      business: {
-        ...DEFAULT_STORE.settings.business,
-        ...(raw.settings?.business || {})
-      },
-      smtp: {
-        ...DEFAULT_STORE.settings.smtp,
-        ...(raw.settings?.smtp || {})
-      },
-      invoice: {
-        ...DEFAULT_STORE.settings.invoice,
-        ...(raw.settings?.invoice || {})
-      },
-      email: {
-        ...DEFAULT_STORE.settings.email,
-        ...(raw.settings?.email || {})
-      }
+    business: {
+      ...DEFAULT_SETTINGS.business,
+      ...(raw.business || {})
     },
-    customers: Array.isArray(raw.customers) ? raw.customers : [],
-    articles: Array.isArray(raw.articles) ? raw.articles : [],
-    invoices: Array.isArray(raw.invoices) ? raw.invoices : []
+    smtp: {
+      ...DEFAULT_SETTINGS.smtp,
+      ...(raw.smtp || {})
+    },
+    invoice: {
+      ...DEFAULT_SETTINGS.invoice,
+      ...(raw.invoice || {})
+    },
+    email: {
+      ...DEFAULT_SETTINGS.email,
+      ...(raw.email || {})
+    }
+  };
+}
+
+function createUserRecord({
+  id,
+  username = "admin",
+  password = "admin",
+  passwordHash,
+  settings,
+  customers,
+  articles,
+  invoices,
+  createdAt,
+  updatedAt
+} = {}) {
+  return {
+    id: id || crypto.randomUUID(),
+    username: String(username || "").trim() || "admin",
+    passwordHash: passwordHash || hashPassword(password),
+    settings: mergeSettings(settings),
+    customers: Array.isArray(customers) ? customers : [],
+    articles: Array.isArray(articles) ? articles : [],
+    invoices: Array.isArray(invoices) ? invoices : [],
+    createdAt: createdAt || new Date().toISOString(),
+    updatedAt: updatedAt || new Date().toISOString()
+  };
+}
+
+function mergeStore(raw = {}) {
+  if (Array.isArray(raw.users)) {
+    return {
+      users: raw.users.map((user) => createUserRecord(user)),
+      sessions: Array.isArray(raw.sessions) ? raw.sessions : []
+    };
+  }
+
+  const legacySettings = raw.settings || {};
+  const migratedUser = createUserRecord({
+    username: legacySettings.auth?.username || "admin",
+    password: legacySettings.auth?.password || "admin",
+    settings: {
+      business: legacySettings.business,
+      smtp: legacySettings.smtp,
+      invoice: legacySettings.invoice,
+      email: legacySettings.email
+    },
+    customers: raw.customers,
+    articles: raw.articles,
+    invoices: raw.invoices
+  });
+
+  return {
+    users: [migratedUser],
+    sessions: []
   };
 }
 
@@ -103,7 +174,18 @@ async function ensureDataFiles() {
   try {
     await fs.access(DATA_FILE);
   } catch {
-    await fs.writeFile(DATA_FILE, JSON.stringify(DEFAULT_STORE, null, 2), "utf8");
+    await fs.writeFile(
+      DATA_FILE,
+      JSON.stringify(
+        {
+          users: [createUserRecord({ username: "admin", password: "admin" })],
+          sessions: []
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
   }
 }
 
@@ -125,9 +207,12 @@ function sanitizeSettings(settings) {
       port: Number(settings.smtp.port) || 587,
       secure: Boolean(settings.smtp.secure),
       user: settings.smtp.user,
-      fromEmail: settings.smtp.fromEmail,
+      pass: settings.smtp.pass,
       ccEmail: settings.smtp.ccEmail,
       smtpPassConfigured: Boolean(settings.smtp.pass)
+    },
+    auth: {
+      username: ""
     },
     invoice: {
       title: settings.invoice.title,
@@ -192,15 +277,75 @@ function sanitizeItem(input = {}) {
   };
 }
 
-function buildInvoiceNumber(store, issueDate) {
-  const issueYear = Number(String(issueDate || "").slice(0, 4)) || new Date().getFullYear();
-  if (Number(store.settings.invoice.counterYear) !== issueYear) {
-    store.settings.invoice.counterYear = issueYear;
-    store.settings.invoice.counterValue = 0;
+function getUserSettingsForClient(user) {
+  return {
+    ...sanitizeSettings(user.settings),
+    auth: {
+      username: user.username
+    }
+  };
+}
+
+function getSessionToken(req) {
+  const header = String(req.headers.authorization || "");
+  if (header.startsWith("Bearer ")) {
+    return header.slice(7).trim();
+  }
+  return "";
+}
+
+function findUserByUsername(store, username) {
+  return store.users.find((entry) => entry.username === String(username || "").trim()) || null;
+}
+
+function findUserBySession(store, token) {
+  const session = store.sessions.find((entry) => entry.token === token);
+  if (!session) {
+    return { session: null, user: null };
   }
 
-  store.settings.invoice.counterValue = Number(store.settings.invoice.counterValue || 0) + 1;
-  return `${issueYear}-${String(store.settings.invoice.counterValue).padStart(5, "0")}`;
+  const user = store.users.find((entry) => entry.id === session.userId) || null;
+  return { session, user };
+}
+
+function createSession(store, userId) {
+  const session = {
+    token: crypto.randomUUID(),
+    userId,
+    createdAt: new Date().toISOString()
+  };
+  store.sessions.push(session);
+  return session;
+}
+
+async function requireAuth(req, res, next) {
+  try {
+    const store = await readStore();
+    const token = getSessionToken(req);
+    const { session, user } = findUserBySession(store, token);
+    if (!session || !user) {
+      res.status(401).json({ error: "Bitte neu anmelden." });
+      return;
+    }
+
+    req.store = store;
+    req.user = user;
+    req.session = session;
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+function buildInvoiceNumber(user, issueDate) {
+  const issueYear = Number(String(issueDate || "").slice(0, 4)) || new Date().getFullYear();
+  if (Number(user.settings.invoice.counterYear) !== issueYear) {
+    user.settings.invoice.counterYear = issueYear;
+    user.settings.invoice.counterValue = 0;
+  }
+
+  user.settings.invoice.counterValue = Number(user.settings.invoice.counterValue || 0) + 1;
+  return `${issueYear}-${String(user.settings.invoice.counterValue).padStart(5, "0")}`;
 }
 
 function getNextSequentialNumber(entries, fieldName) {
@@ -224,8 +369,7 @@ function getMailSettings(settings) {
       String(process.env.SMTP_SECURE || settings.smtp.secure || "false").toLowerCase() === "true",
     user: process.env.SMTP_USER || settings.smtp.user,
     pass: process.env.SMTP_PASS || settings.smtp.pass,
-    fromEmail:
-      process.env.SMTP_FROM || settings.business.email || settings.smtp.fromEmail || settings.smtp.user,
+    fromEmail: process.env.SMTP_FROM || settings.smtp.user || settings.business.email,
     ccEmail: process.env.SMTP_CC || settings.business.email || settings.smtp.ccEmail
   };
 }
@@ -235,17 +379,16 @@ function isMailConfigured(mailSettings) {
     mailSettings.host &&
       mailSettings.port &&
       mailSettings.user &&
-      mailSettings.pass &&
-      mailSettings.fromEmail
+      mailSettings.pass
   );
 }
 
-async function createInvoiceFiles(invoiceNumber, imageDataUrl) {
+async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   if (!imageDataUrl?.startsWith("data:image/png;base64,")) {
     return { pdfPath: null, pdfUrl: null, pngPath: null, pngUrl: null };
   }
 
-  const baseName = invoiceNumber.replace(/[^a-zA-Z0-9-_]/g, "_");
+  const baseName = `${user.username}_${invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_");
   const pngPath = path.join(GENERATED_DIR, `${baseName}.png`);
   const pdfPath = path.join(GENERATED_DIR, `${baseName}.pdf`);
   const pngBuffer = Buffer.from(imageDataUrl.split(",")[1], "base64");
@@ -273,7 +416,28 @@ async function createInvoiceFiles(invoiceNumber, imageDataUrl) {
   };
 }
 
-async function sendInvoiceEmail(store, invoice, fileInfo) {
+async function saveLogoAsset(kind, imageDataUrl) {
+  const targets = {
+    invoice: path.join(PUBLIC_DIR, "assets", "KaindlBanner.png"),
+    app: path.join(PUBLIC_DIR, "assets", "KaindlLogo.png")
+  };
+
+  const targetFile = targets[kind];
+  if (!targetFile) {
+    throw new Error("Unbekannte Logo-Art.");
+  }
+
+  if (!String(imageDataUrl || "").startsWith("data:image/png;base64,")) {
+    throw new Error("Logo muss als PNG-Bild hochgeladen werden.");
+  }
+
+  const rawBase64 = String(imageDataUrl).split(",")[1] || "";
+  const imageBuffer = Buffer.from(rawBase64, "base64");
+  await fs.mkdir(path.dirname(targetFile), { recursive: true });
+  await fs.writeFile(targetFile, imageBuffer);
+}
+
+async function sendInvoiceEmail(user, invoice, fileInfo) {
   if (!invoice.customer.email) {
     return {
       status: "skipped",
@@ -281,7 +445,7 @@ async function sendInvoiceEmail(store, invoice, fileInfo) {
     };
   }
 
-  const mailSettings = getMailSettings(store.settings);
+  const mailSettings = getMailSettings(user.settings);
   if (!isMailConfigured(mailSettings)) {
     return {
       status: "skipped",
@@ -302,7 +466,7 @@ async function sendInvoiceEmail(store, invoice, fileInfo) {
   const tokens = {
     invoiceNumber: invoice.invoiceNumber,
     customerName: invoice.customer.name,
-    companyName: store.settings.business.companyName
+    companyName: user.settings.business.companyName
   };
 
   const attachments = [];
@@ -314,11 +478,11 @@ async function sendInvoiceEmail(store, invoice, fileInfo) {
   }
 
   await transport.sendMail({
-    from: `"${store.settings.business.companyName || "Rechnungs-App"}" <${mailSettings.fromEmail}>`,
+    from: `"${user.settings.business.companyName || "Rechnungs-App"}" <${mailSettings.fromEmail}>`,
     to: invoice.customer.email,
     cc: mailSettings.ccEmail || undefined,
-    subject: compileTemplate(store.settings.email.subjectTemplate, tokens),
-    text: compileTemplate(store.settings.email.bodyTemplate, tokens),
+    subject: compileTemplate(user.settings.email.subjectTemplate, tokens),
+    text: compileTemplate(user.settings.email.bodyTemplate, tokens),
     attachments
   });
 
@@ -328,8 +492,8 @@ async function sendInvoiceEmail(store, invoice, fileInfo) {
   };
 }
 
-function buildInvoiceRecord(store, payload) {
-  const customer = store.customers.find((entry) => entry.id === payload.customerId);
+function buildInvoiceRecord(user, payload) {
+  const customer = user.customers.find((entry) => entry.id === payload.customerId);
   if (!customer) {
     throw new Error("Der ausgewählte Kunde wurde nicht gefunden.");
   }
@@ -348,8 +512,8 @@ function buildInvoiceRecord(store, payload) {
 
   return {
     id: crypto.randomUUID(),
-    invoiceNumber: buildInvoiceNumber(store, issueDate),
-    title: String(payload.title || store.settings.invoice.title || "Rechnung").trim(),
+    invoiceNumber: buildInvoiceNumber(user, issueDate),
+    title: String(payload.title || user.settings.invoice.title || "Rechnung").trim(),
     reference: String(payload.reference || "").trim(),
     issueDate,
     dueDate,
@@ -365,188 +529,286 @@ function buildInvoiceRecord(store, payload) {
   };
 }
 
-app.get("/api/bootstrap", async (_req, res, next) => {
+app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
     res.json({
-      settings: sanitizeSettings(store.settings),
-      customers: store.customers,
-      articles: store.articles,
-      invoices: [...store.invoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      settings: getUserSettingsForClient(req.user),
+      customers: req.user.customers,
+      articles: req.user.articles,
+      invoices: [...req.user.invoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     });
   } catch (error) {
     next(error);
   }
 });
 
-app.put("/api/settings", async (req, res, next) => {
+app.post("/api/auth/login", async (req, res, next) => {
   try {
     const store = await readStore();
-    const incoming = req.body?.settings || {};
+    const username = String(req.body?.username || "").trim();
+    const password = String(req.body?.password || "");
+    const user = findUserByUsername(store, username);
 
-    store.settings.business = {
-      ...store.settings.business,
-      ...(incoming.business || {})
-    };
-    store.settings.email = {
-      ...store.settings.email,
-      ...(incoming.email || {})
-    };
-    store.settings.invoice = {
-      ...store.settings.invoice,
-      ...(incoming.invoice || {})
-    };
-
-    const currentPass = store.settings.smtp.pass;
-    store.settings.smtp = {
-      ...store.settings.smtp,
-      ...(incoming.smtp || {})
-    };
-    if (!incoming.smtp?.pass) {
-      store.settings.smtp.pass = currentPass;
+    if (!username || !password || !user || user.passwordHash !== hashPassword(password)) {
+      res.status(401).json({ error: "Benutzername oder Kennwort ist nicht korrekt." });
+      return;
     }
 
-    store.settings.smtp.port = Number(store.settings.smtp.port || 587);
-    store.settings.invoice.counterYear =
-      Number(store.settings.invoice.counterYear) || new Date().getFullYear();
-    store.settings.invoice.counterValue = Number(store.settings.invoice.counterValue) || 0;
-
+    const session = createSession(store, user.id);
     await writeStore(store);
-    res.json({ settings: sanitizeSettings(store.settings) });
+    res.json({ ok: true, username: user.username, token: session.token });
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/customers", async (req, res, next) => {
+app.post("/api/auth/register", async (req, res, next) => {
   try {
     const store = await readStore();
+    const username = String(req.body?.username || "").trim();
+    const password = String(req.body?.password || "");
+
+    if (!username || !password) {
+      res.status(400).json({ error: "Benutzername und Kennwort sind erforderlich." });
+      return;
+    }
+
+    if (findUserByUsername(store, username)) {
+      res.status(409).json({ error: "Dieser Benutzername ist bereits vergeben." });
+      return;
+    }
+
+    const user = createUserRecord({ username, password });
+    store.users.push(user);
+    const session = createSession(store, user.id);
+    await writeStore(store);
+    res.status(201).json({ ok: true, username: user.username, token: session.token });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/auth/session", requireAuth, async (req, res, next) => {
+  try {
+    res.json({ ok: true, username: req.user.username });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/logout", requireAuth, async (req, res, next) => {
+  try {
+    req.store.sessions = req.store.sessions.filter((entry) => entry.token !== req.session.token);
+    await writeStore(req.store);
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
+  try {
+    await saveLogoAsset(String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
+    res.status(201).json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/settings", requireAuth, async (req, res, next) => {
+  try {
+    const incoming = req.body?.settings || {};
+    const currentUser = req.user;
+
+    currentUser.settings.business = {
+      ...currentUser.settings.business,
+      ...(incoming.business || {})
+    };
+    currentUser.settings.email = {
+      ...currentUser.settings.email,
+      ...(incoming.email || {})
+    };
+    currentUser.settings.invoice = {
+      ...currentUser.settings.invoice,
+      ...(incoming.invoice || {})
+    };
+
+    const currentPass = currentUser.settings.smtp.pass;
+    currentUser.settings.smtp = {
+      ...currentUser.settings.smtp,
+      ...(incoming.smtp || {})
+    };
+    if (!incoming.smtp?.pass) {
+      currentUser.settings.smtp.pass = currentPass;
+    }
+
+    const nextUsername = String(incoming.auth?.username || currentUser.username).trim() || currentUser.username;
+    const otherUser = req.store.users.find(
+      (entry) => entry.id !== currentUser.id && entry.username === nextUsername
+    );
+    if (otherUser) {
+      res.status(409).json({ error: "Dieser Benutzername ist bereits vergeben." });
+      return;
+    }
+
+    currentUser.username = nextUsername;
+    if (incoming.auth?.password) {
+      currentUser.passwordHash = hashPassword(incoming.auth.password);
+      req.store.sessions = req.store.sessions.filter(
+        (entry) => entry.userId !== currentUser.id || entry.token === req.session.token
+      );
+    }
+
+    currentUser.settings.smtp.port = Number(currentUser.settings.smtp.port || 587);
+    currentUser.settings.invoice.counterYear =
+      Number(currentUser.settings.invoice.counterYear) || new Date().getFullYear();
+    currentUser.settings.invoice.counterValue = Number(currentUser.settings.invoice.counterValue) || 0;
+    currentUser.updatedAt = new Date().toISOString();
+
+    await writeStore(req.store);
+    res.json({ settings: getUserSettingsForClient(currentUser) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/customers", requireAuth, async (req, res, next) => {
+  try {
     const customer = sanitizeCustomer(req.body?.customer || req.body);
     if (!customer.customerNumber) {
-      customer.customerNumber = getNextSequentialNumber(store.customers, "customerNumber");
+      customer.customerNumber = getNextSequentialNumber(req.user.customers, "customerNumber");
     }
     if (!customer.name) {
       res.status(400).json({ error: "Kundenname ist erforderlich." });
       return;
     }
 
-    store.customers.push(customer);
-    await writeStore(store);
+    req.user.customers.push(customer);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
     res.status(201).json({ customer });
   } catch (error) {
     next(error);
   }
 });
 
-app.put("/api/customers/:id", async (req, res, next) => {
+app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
-    const index = store.customers.findIndex((entry) => entry.id === req.params.id);
+    const index = req.user.customers.findIndex((entry) => entry.id === req.params.id);
     if (index === -1) {
       res.status(404).json({ error: "Kunde nicht gefunden." });
       return;
     }
 
-    store.customers[index] = sanitizeCustomer({
-      ...store.customers[index],
+    req.user.customers[index] = sanitizeCustomer({
+      ...req.user.customers[index],
       ...(req.body?.customer || req.body),
       id: req.params.id
     });
-    await writeStore(store);
-    res.json({ customer: store.customers[index] });
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
+    res.json({ customer: req.user.customers[index] });
   } catch (error) {
     next(error);
   }
 });
 
-app.delete("/api/customers/:id", async (req, res, next) => {
+app.delete("/api/customers/:id", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
-    store.customers = store.customers.filter((entry) => entry.id !== req.params.id);
-    await writeStore(store);
+    req.user.customers = req.user.customers.filter((entry) => entry.id !== req.params.id);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
     res.status(204).end();
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/articles", async (req, res, next) => {
+app.post("/api/articles", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
     const article = sanitizeArticle(req.body?.article || req.body);
     if (!article.number) {
-      article.number = getNextSequentialNumber(store.articles, "number");
+      article.number = getNextSequentialNumber(req.user.articles, "number");
     }
     if (!article.name) {
       res.status(400).json({ error: "Artikelname ist erforderlich." });
       return;
     }
 
-    store.articles.push(article);
-    await writeStore(store);
+    req.user.articles.push(article);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
     res.status(201).json({ article });
   } catch (error) {
     next(error);
   }
 });
 
-app.put("/api/articles/:id", async (req, res, next) => {
+app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
-    const index = store.articles.findIndex((entry) => entry.id === req.params.id);
+    const index = req.user.articles.findIndex((entry) => entry.id === req.params.id);
     if (index === -1) {
       res.status(404).json({ error: "Artikel nicht gefunden." });
       return;
     }
 
-    store.articles[index] = sanitizeArticle({
-      ...store.articles[index],
+    req.user.articles[index] = sanitizeArticle({
+      ...req.user.articles[index],
       ...(req.body?.article || req.body),
       id: req.params.id
     });
-    await writeStore(store);
-    res.json({ article: store.articles[index] });
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
+    res.json({ article: req.user.articles[index] });
   } catch (error) {
     next(error);
   }
 });
 
-app.delete("/api/articles/:id", async (req, res, next) => {
+app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
-    store.articles = store.articles.filter((entry) => entry.id !== req.params.id);
-    await writeStore(store);
+    req.user.articles = req.user.articles.filter((entry) => entry.id !== req.params.id);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
     res.status(204).end();
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/invoices", async (req, res, next) => {
+app.post("/api/invoices", requireAuth, async (req, res, next) => {
   try {
-    const store = await readStore();
-    const invoice = buildInvoiceRecord(store, req.body || {});
-    const fileInfo = await createInvoiceFiles(invoice.invoiceNumber, req.body?.imageDataUrl);
+    const invoice = buildInvoiceRecord(req.user, req.body || {});
+    const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl);
     invoice.files = fileInfo;
+    const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
 
     let emailResult;
-    try {
-      emailResult = await sendInvoiceEmail(store, invoice, fileInfo);
-    } catch (error) {
+    if (deliveryMethod === "external-app") {
       emailResult = {
-        status: "failed",
-        message: error.message || "Mailversand fehlgeschlagen."
+        status: "external-app",
+        message: "Rechnung erstellt. Die Mail-App kann jetzt geöffnet werden."
       };
+    } else {
+      try {
+        emailResult = await sendInvoiceEmail(req.user, invoice, fileInfo);
+      } catch (error) {
+        emailResult = {
+          status: "failed",
+          message: error.message || "Mailversand fehlgeschlagen."
+        };
+      }
     }
 
     invoice.email = emailResult;
-    store.invoices.unshift(invoice);
-    await writeStore(store);
+    req.user.invoices.unshift(invoice);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
 
     res.status(201).json({
       invoice,
       email: emailResult,
-      settings: sanitizeSettings(store.settings)
+      settings: getUserSettingsForClient(req.user)
     });
   } catch (error) {
     next(error);

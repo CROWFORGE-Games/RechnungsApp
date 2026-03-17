@@ -1,17 +1,16 @@
-const APP_VERSION = "V0.0.1";
+const APP_VERSION = "V0.2.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
-  authUsername: "rechnungsapp.auth.username",
-  authPasswordHash: "rechnungsapp.auth.passwordHash",
-  autoLoginUser: "rechnungsapp.auth.autoLoginUser"
+  authToken: "rechnungsapp.auth.token"
 };
 
 const state = {
   auth: {
     hasUser: false,
     authenticated: false,
-    username: ""
+    username: "",
+    mode: "login"
   },
   settings: null,
   customers: [],
@@ -51,6 +50,7 @@ const invoiceHistory = document.getElementById("invoiceHistory");
 const invoiceCanvas = document.getElementById("invoiceCanvas");
 const canvasContext = invoiceCanvas.getContext("2d");
 const addInvoiceItemButton = document.getElementById("addInvoiceItem");
+const addInvoiceItemInPanelButton = document.getElementById("addInvoiceItemInPanel");
 const createInvoiceButton = document.getElementById("createInvoiceButton");
 const navToggle = document.getElementById("navToggle");
 const authOverlay = document.getElementById("authOverlay");
@@ -59,16 +59,30 @@ const authModeKicker = document.getElementById("authModeKicker");
 const authTitle = document.getElementById("authTitle");
 const authText = document.getElementById("authText");
 const authSubmit = document.getElementById("authSubmit");
+const authSwitchModeButton = document.getElementById("authSwitchMode");
 const authUsernameInput = document.getElementById("authUsername");
 const authPasswordInput = document.getElementById("authPassword");
-const authPasswordConfirmInput = document.getElementById("authPasswordConfirm");
-const authConfirmWrap = document.getElementById("authConfirmWrap");
+const logoutButton = document.getElementById("logoutButton");
+const settingsAuthPasswordInput = document.getElementById("settingsAuthPassword");
+const toggleSettingsAuthPasswordButton = document.getElementById("toggleSettingsAuthPassword");
+const smtpPassInput = document.getElementById("smtpPass");
+const toggleSmtpPassButton = document.getElementById("toggleSmtpPass");
+const openSmtpInfoButton = document.getElementById("openSmtpInfo");
+const ccEmailList = document.getElementById("ccEmailList");
+const addCcEmailButton = document.getElementById("addCcEmail");
+const invoiceLogoFileInput = document.getElementById("invoiceLogoFile");
+const appLogoFileInput = document.getElementById("appLogoFile");
+const appFavicon = document.getElementById("appFavicon");
+const appleTouchIcon = document.getElementById("appleTouchIcon");
+const bannerLogoImages = [...document.querySelectorAll("[data-banner-logo]")];
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
 const sendInvoiceButton = document.getElementById("sendInvoiceButton");
 const sendPreviewCanvas = document.getElementById("sendPreviewCanvas");
 const sendPreviewContext = sendPreviewCanvas.getContext("2d");
+const sendDialogCard = sendDialog.querySelector(".dialog-card");
+const sendPreviewArea = sendDialog.querySelector(".dialog-preview");
 const signatureDialog = document.getElementById("signatureDialog");
 const closeSignatureDialogButton = document.getElementById("closeSignatureDialog");
 const cancelSignatureButton = document.getElementById("cancelSignatureButton");
@@ -76,6 +90,10 @@ const confirmSignatureButton = document.getElementById("confirmSignatureButton")
 const signaturePad = document.getElementById("signaturePad");
 const signatureContext = signaturePad.getContext("2d");
 const clearSignatureButton = document.getElementById("clearSignature");
+const signatureDialogCard = signatureDialog.querySelector(".dialog-card");
+const smtpInfoDialog = document.getElementById("smtpInfoDialog");
+const closeSmtpInfoDialogButton = document.getElementById("closeSmtpInfoDialog");
+const confirmSmtpInfoDialogButton = document.getElementById("confirmSmtpInfoDialog");
 const railButtons = [...document.querySelectorAll(".rail-button")];
 const panelElements = [...document.querySelectorAll(".side-panel")];
 const openPanelButtons = [...document.querySelectorAll("[data-open-panel]")];
@@ -104,6 +122,7 @@ const articleFields = {
   group: articleForm.elements.namedItem("group"),
   number: articleForm.elements.namedItem("number"),
   name: articleForm.elements.namedItem("name"),
+  unit: articleForm.elements.namedItem("unit"),
   unitPrice: articleForm.elements.namedItem("unitPrice"),
   taxRate: articleForm.elements.namedItem("taxRate"),
   description: articleForm.elements.namedItem("description")
@@ -133,11 +152,11 @@ const settingsFields = {
   smtpPort: settingsForm.elements.namedItem("smtpPort"),
   smtpUser: settingsForm.elements.namedItem("smtpUser"),
   smtpPass: settingsForm.elements.namedItem("smtpPass"),
-  fromEmail: settingsForm.elements.namedItem("fromEmail"),
-  ccEmail: settingsForm.elements.namedItem("ccEmail"),
   smtpSecure: settingsForm.elements.namedItem("smtpSecure"),
   emailSubject: settingsForm.elements.namedItem("emailSubject"),
-  emailBody: settingsForm.elements.namedItem("emailBody")
+  emailBody: settingsForm.elements.namedItem("emailBody"),
+  authUsername: settingsForm.elements.namedItem("authUsername"),
+  authPassword: settingsForm.elements.namedItem("authPassword")
 };
 
 const templateState = {
@@ -154,6 +173,7 @@ let previewTimer = 0;
 let renderNonce = 0;
 let isSignatureDrawing = false;
 let hasSignatureStroke = false;
+let lastBusinessEmailValue = "";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -171,7 +191,7 @@ function createEmptyItem() {
     articleId: "",
     articleNumber: "",
     description: "",
-    quantity: 1,
+    quantity: 0.5,
     unit: "Stunden",
     unitPrice: 0,
     taxRate: 20,
@@ -263,16 +283,18 @@ function selectedArticle(articleId) {
 function normalizeArticle(article) {
   return {
     ...article,
-    unit: "Stunden",
+    unit: String(article.unit || "Stunden").trim(),
     unitPrice: toNumber(article.unitPrice),
     taxRate: toNumber(article.taxRate, 20)
   };
 }
 
 async function api(url, options = {}) {
+  const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
   const response = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(options.headers || {})
     },
     ...options
@@ -280,6 +302,20 @@ async function api(url, options = {}) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: "Unbekannter Fehler" }));
+    if (
+      response.status === 401 &&
+      !String(url).includes("/api/auth/login") &&
+      !String(url).includes("/api/auth/register") &&
+      !String(url).includes("/api/auth/session")
+    ) {
+      clearAuthToken();
+      resetAuthenticatedState();
+      if (logoutButton) {
+        logoutButton.hidden = true;
+      }
+      setAuthMode("login");
+      showAuthOverlay();
+    }
     throw new Error(errorData.error || "Unbekannter Fehler");
   }
 
@@ -288,6 +324,29 @@ async function api(url, options = {}) {
   }
 
   return response.json();
+}
+
+function clearAuthToken() {
+  window.localStorage.removeItem(STORAGE_KEYS.authToken);
+}
+
+function resetAuthenticatedState() {
+  state.auth.authenticated = false;
+  state.auth.username = "";
+  state.settings = null;
+  state.customers = [];
+  state.articles = [];
+  state.invoices = [];
+  state.openPanelId = null;
+  state.invoiceDraft = {
+    customerId: "",
+    issueDate: today(),
+    dueDate: addDays(14),
+    reference: "",
+    notes: "",
+    items: [createEmptyItem()],
+    signatureDataUrl: ""
+  };
 }
 
 function setStatus(message, tone = "info") {
@@ -311,7 +370,8 @@ function setActiveRail(targetPanelId = null) {
 }
 
 function loadCollapsedState() {
-  const isCollapsed = window.localStorage.getItem(STORAGE_KEYS.navCollapsed) === "true";
+  const storedValue = window.localStorage.getItem(STORAGE_KEYS.navCollapsed);
+  const isCollapsed = storedValue === null ? true : storedValue === "true";
   appShell.classList.toggle("nav-collapsed", isCollapsed);
 }
 
@@ -356,6 +416,15 @@ function closePanelsIfMobile() {
 function openSendDialog() {
   sendDialog.hidden = false;
   document.body.classList.add("panel-open");
+  window.requestAnimationFrame(() => {
+    sendDialog.scrollTop = 0;
+    if (sendDialogCard) {
+      sendDialogCard.scrollTop = 0;
+    }
+    if (sendPreviewArea) {
+      sendPreviewArea.scrollTop = 0;
+    }
+  });
 }
 
 function closeSendDialog() {
@@ -369,6 +438,12 @@ function closeSendDialog() {
 function openSignatureDialog() {
   signatureDialog.hidden = false;
   document.body.classList.add("panel-open");
+  window.requestAnimationFrame(() => {
+    signatureDialog.scrollTop = 0;
+    if (signatureDialogCard) {
+      signatureDialogCard.scrollTop = 0;
+    }
+  });
 }
 
 function closeSignatureDialog() {
@@ -378,23 +453,51 @@ function closeSignatureDialog() {
   }
 }
 
-async function hashPassword(value) {
-  const input = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", input);
-  return [...new Uint8Array(digest)].map((chunk) => chunk.toString(16).padStart(2, "0")).join("");
+function openSmtpInfoDialog() {
+  smtpInfoDialog.hidden = false;
+  document.body.classList.add("panel-open");
 }
 
-function loadAuthState() {
-  const storedUsername = window.localStorage.getItem(STORAGE_KEYS.authUsername) || "";
-  const storedHash = window.localStorage.getItem(STORAGE_KEYS.authPasswordHash) || "";
-  const rememberedUser = window.localStorage.getItem(STORAGE_KEYS.autoLoginUser) || "";
-  state.auth.hasUser = Boolean(storedUsername && storedHash);
-  state.auth.username = storedUsername;
-  state.auth.authenticated = state.auth.hasUser && rememberedUser === storedUsername;
+function closeSmtpInfoDialog() {
+  smtpInfoDialog.hidden = true;
+  if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden && signatureDialog.hidden) {
+    document.body.classList.remove("panel-open");
+  }
 }
 
-function setAuthMode(mode) {
+async function loadAuthState() {
+  state.auth.hasUser = true;
+  const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
+
+  if (!authToken) {
+    state.auth.authenticated = false;
+    state.auth.username = "";
+    return;
+  }
+
+  try {
+    const response = await api("/api/auth/session");
+    state.auth.username = String(response.username || "").trim();
+    state.auth.authenticated = Boolean(state.auth.username);
+  } catch {
+    clearAuthToken();
+    state.auth.authenticated = false;
+    state.auth.username = "";
+  }
+}
+
+function setAuthMode(mode = "login") {
+  state.auth.mode = mode;
   const isRegister = mode === "register";
+  authModeKicker.textContent = isRegister ? "Neuer Benutzer" : "Anmeldung";
+  authTitle.textContent = isRegister ? "Benutzer anlegen" : "Anmelden";
+  authText.textContent = isRegister
+    ? "Lege einen neuen Benutzer an. Kunden, Leistungen, Rechnungen und Einstellungen werden danach getrennt gespeichert."
+    : "Mit deinem Benutzer anmelden. Nach dem Login werden deine eigenen Daten auf jedem Gerät wieder geladen.";
+  authSubmit.textContent = isRegister ? "Benutzer anlegen" : "Anmelden";
+  authSwitchModeButton.textContent = isRegister ? "Zum Login" : "Neuen Benutzer anlegen";
+  return;
+  /* legacy auth mode removed
   authModeKicker.textContent = isRegister ? "Erster Start" : "Anmeldung";
   authTitle.textContent = isRegister ? "Benutzer registrieren" : "Anmelden";
   authText.textContent = isRegister
@@ -403,6 +506,7 @@ function setAuthMode(mode) {
   authSubmit.textContent = isRegister ? "Registrieren" : "Anmelden";
   authConfirmWrap.hidden = !isRegister;
   authPasswordConfirmInput.required = isRegister;
+  */
 }
 
 function showAuthOverlay() {
@@ -523,7 +627,9 @@ function populateSettingsForm() {
     return;
   }
 
-  const { business, smtp, invoice, email } = state.settings;
+  const { business, smtp, invoice, email, auth } = state.settings;
+  settingsFields.authUsername.value = auth?.username || "";
+  settingsFields.authPassword.value = "";
   settingsFields.companyName.value = business.companyName || "";
   settingsFields.senderLine.value = business.senderLine || "";
   settingsFields.addressLine1.value = business.addressLine1 || "";
@@ -546,12 +652,14 @@ function populateSettingsForm() {
   settingsFields.smtpHost.value = smtp.host || "";
   settingsFields.smtpPort.value = smtp.port || 587;
   settingsFields.smtpUser.value = smtp.user || "";
-  settingsFields.smtpPass.value = "";
-  settingsFields.fromEmail.value = smtp.fromEmail || "";
-  settingsFields.ccEmail.value = smtp.ccEmail || "";
+  settingsFields.smtpPass.value = smtp.pass || "";
+  renderCcEmailInputs(parseEmailList(smtp.ccEmail || business.email || ""));
   settingsFields.smtpSecure.checked = Boolean(smtp.secure);
   settingsFields.emailSubject.value = email.subjectTemplate || "";
   settingsFields.emailBody.value = email.bodyTemplate || "";
+  lastBusinessEmailValue = business.email || "";
+  updateSettingsAuthPasswordToggleLabel();
+  updateSmtpPassToggleLabel();
 }
 
 function readSettingsForm() {
@@ -574,13 +682,16 @@ function readSettingsForm() {
       paymentNote: settingsFields.paymentNote.value.trim(),
       footerNote: settingsFields.footerNote.value.trim()
     },
+    auth: {
+      username: settingsFields.authUsername.value.trim() || "admin",
+      password: settingsFields.authPassword.value
+    },
     smtp: {
       host: settingsFields.smtpHost.value.trim(),
       port: toNumber(settingsFields.smtpPort.value, 587),
       user: settingsFields.smtpUser.value.trim(),
       pass: settingsFields.smtpPass.value.trim(),
-      fromEmail: settingsFields.fromEmail.value.trim(),
-      ccEmail: settingsFields.ccEmail.value.trim(),
+      ccEmail: getCcEmailValue(),
       secure: settingsFields.smtpSecure.checked
     },
     invoice: {
@@ -593,6 +704,163 @@ function readSettingsForm() {
       bodyTemplate: settingsFields.emailBody.value.trim()
     }
   };
+}
+
+function parseEmailList(value) {
+  return String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function renderCcEmailInputs(values = []) {
+  if (!ccEmailList) {
+    return;
+  }
+
+  const entries = values.length ? values : [""];
+  ccEmailList.innerHTML = entries
+    .map(
+      (value, index) => `
+        <div class="cc-row">
+          <input
+            class="cc-row__input"
+            type="email"
+            value="${escapeHtml(value)}"
+            placeholder="cc@example.com"
+            data-cc-index="${index}"
+          />
+          <button class="ghost cc-row__remove" type="button" data-remove-cc="${index}">×</button>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function readCcEmailInputs() {
+  if (!ccEmailList) {
+    return [];
+  }
+
+  return [...ccEmailList.querySelectorAll("[data-cc-index]")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+}
+
+function getCcEmailValue() {
+  return readCcEmailInputs().join(", ");
+}
+
+function addCcEmailRow(value = "") {
+  const entries = [...readCcEmailInputs(), value];
+  renderCcEmailInputs(entries);
+}
+
+function syncBusinessEmailDefaults(nextEmail) {
+  const trimmedEmail = String(nextEmail || "").trim();
+  const previousEmail = lastBusinessEmailValue;
+
+  if (!trimmedEmail) {
+    lastBusinessEmailValue = "";
+    return;
+  }
+
+  if (!settingsFields.smtpUser.value.trim() || settingsFields.smtpUser.value.trim() === previousEmail) {
+    settingsFields.smtpUser.value = trimmedEmail;
+  }
+
+  const ccEntries = readCcEmailInputs();
+  if (!ccEntries.length || (ccEntries.length === 1 && ccEntries[0] === previousEmail)) {
+    renderCcEmailInputs([trimmedEmail]);
+  }
+
+  lastBusinessEmailValue = trimmedEmail;
+}
+
+function updateSmtpPassToggleLabel() {
+  if (!toggleSmtpPassButton || !smtpPassInput) {
+    return;
+  }
+
+  const isHidden = smtpPassInput.type === "password";
+  toggleSmtpPassButton.classList.toggle("is-visible", !isHidden);
+  toggleSmtpPassButton.setAttribute(
+    "aria-label",
+    isHidden ? "SMTP Passwort anzeigen" : "SMTP Passwort verbergen"
+  );
+  toggleSmtpPassButton.title = isHidden ? "SMTP Passwort anzeigen" : "SMTP Passwort verbergen";
+}
+
+function updateSettingsAuthPasswordToggleLabel() {
+  if (!toggleSettingsAuthPasswordButton || !settingsAuthPasswordInput) {
+    return;
+  }
+
+  const isHidden = settingsAuthPasswordInput.type === "password";
+  toggleSettingsAuthPasswordButton.classList.toggle("is-visible", !isHidden);
+  toggleSettingsAuthPasswordButton.setAttribute(
+    "aria-label",
+    isHidden ? "Kennwort anzeigen" : "Kennwort verbergen"
+  );
+  toggleSettingsAuthPasswordButton.title = isHidden ? "Kennwort anzeigen" : "Kennwort verbergen";
+}
+
+function refreshBrandAssets() {
+  const stamp = `?v=${Date.now()}`;
+  bannerLogoImages.forEach((image) => {
+    image.src = `/assets/KaindlBanner.png${stamp}`;
+  });
+  if (appFavicon) {
+    appFavicon.href = `/assets/KaindlLogo.png${stamp}`;
+  }
+  if (appleTouchIcon) {
+    appleTouchIcon.href = `/assets/KaindlLogo.png${stamp}`;
+  }
+  logoState.loaded = false;
+  logoState.image = null;
+}
+
+function fileToPngDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        URL.revokeObjectURL(imageUrl);
+        reject(new Error("Bild konnte nicht verarbeitet werden."));
+        return;
+      }
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0);
+      URL.revokeObjectURL(imageUrl);
+      resolve(canvas.toDataURL("image/png"));
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Datei konnte nicht gelesen werden."));
+    };
+
+    image.src = imageUrl;
+  });
+}
+
+async function uploadLogoAsset(kind, file) {
+  if (!file) {
+    return;
+  }
+
+  const imageDataUrl = await fileToPngDataUrl(file);
+  await api("/api/assets/logo", {
+    method: "POST",
+    body: JSON.stringify({ kind, imageDataUrl })
+  });
 }
 
 function fillCustomerForm(customer = null) {
@@ -652,6 +920,7 @@ function fillArticleForm(article = null) {
     group: "",
     number: nextArticleNumber(),
     name: "",
+    unit: "Stunden",
     unitPrice: "",
     taxRate: 20,
     description: ""
@@ -661,6 +930,7 @@ function fillArticleForm(article = null) {
   articleFields.group.value = entry.group || "";
   articleFields.number.value = entry.number || nextArticleNumber();
   articleFields.name.value = entry.name || "";
+  articleFields.unit.value = entry.unit || "Stunden";
   articleFields.unitPrice.value = entry.unitPrice ?? "";
   articleFields.taxRate.value = entry.taxRate ?? 20;
   articleFields.description.value = entry.description || "";
@@ -673,7 +943,7 @@ function readArticleForm() {
     number: articleFields.number.value.trim(),
     name: articleFields.name.value.trim(),
     description: articleFields.description.value.trim(),
-    unit: "Stunden",
+    unit: articleFields.unit.value.trim() || "Stunden",
     unitPrice: toNumber(articleFields.unitPrice.value),
     taxRate: toNumber(articleFields.taxRate.value, 20)
   };
@@ -688,9 +958,11 @@ function calculateItem(item) {
   const unitPrice = toNumber(item.unitPrice, 0);
   const discount = toNumber(item.discount, 0);
   const taxRate = toNumber(item.taxRate, 0);
-  const net = roundCurrency(quantity * unitPrice * Math.max(0, 1 - discount / 100));
+  const undiscountedNet = roundCurrency(quantity * unitPrice);
+  const net = roundCurrency(undiscountedNet * Math.max(0, 1 - discount / 100));
   const tax = roundCurrency(net * (taxRate / 100));
   return {
+    discountAmount: roundCurrency(undiscountedNet - net),
     net,
     tax,
     gross: roundCurrency(net + tax)
@@ -705,12 +977,13 @@ function calculateDraftTotals() {
       }
 
       const current = calculateItem(item);
+      totals.discountTotal = roundCurrency(totals.discountTotal + current.discountAmount);
       totals.subtotal = roundCurrency(totals.subtotal + current.net);
       totals.taxTotal = roundCurrency(totals.taxTotal + current.tax);
       totals.grossTotal = roundCurrency(totals.grossTotal + current.gross);
       return totals;
     },
-    { subtotal: 0, taxTotal: 0, grossTotal: 0 }
+    { discountTotal: 0, subtotal: 0, taxTotal: 0, grossTotal: 0 }
   );
 }
 
@@ -849,9 +1122,9 @@ function renderInvoiceItems() {
             )}" />
           </td>
           <td data-label="Einheit">
-            <div class="readonly-chip">Stunden</div>
+            <input name="unit" type="text" value="${escapeHtml(item.unit || "Stunden")}" />
           </td>
-          <td data-label="Verkaufspreis">
+          <td data-label="Nettopreis">
             <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
               item.unitPrice
             )}" />
@@ -886,7 +1159,7 @@ function readInvoiceRow(row) {
     description: row.querySelector('[name="description"]').value.trim(),
     articleNumber: row.querySelector('[name="articleNumber"]').value.trim(),
     quantity: toNumber(row.querySelector('[name="quantity"]').value, 0),
-    unit: "Stunden",
+    unit: row.querySelector('[name="unit"]').value.trim() || "Stunden",
     unitPrice: toNumber(row.querySelector('[name="unitPrice"]').value, 0),
     taxRate: toNumber(row.querySelector('[name="taxRate"]').value, 0),
     discount: toNumber(row.querySelector('[name="discount"]').value, 0)
@@ -923,8 +1196,7 @@ function applyArticleToItem(item, article) {
     return {
       ...item,
       articleId: "",
-      articleNumber: item.articleNumber || "",
-      unit: "Stunden"
+      articleNumber: item.articleNumber || ""
     };
   }
 
@@ -933,7 +1205,7 @@ function applyArticleToItem(item, article) {
     articleId: article.id,
     articleNumber: article.number || "",
     description: article.name || item.description,
-    unit: "Stunden",
+    unit: article.unit || item.unit || "Stunden",
     unitPrice: toNumber(article.unitPrice),
     taxRate: toNumber(article.taxRate, 20)
   };
@@ -951,7 +1223,7 @@ function syncDraftItemsFromArticle(articleId, draftArticle) {
       ...item,
       articleNumber: draftArticle.number || item.articleNumber,
       description: draftArticle.name || item.description,
-      unit: "Stunden",
+      unit: draftArticle.unit || item.unit || "Stunden",
       unitPrice: toNumber(draftArticle.unitPrice, item.unitPrice),
       taxRate: toNumber(draftArticle.taxRate, item.taxRate)
     };
@@ -1081,6 +1353,8 @@ async function renderCanvas() {
   }
 
   canvasContext.clearRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
+  canvasContext.fillStyle = "#ffffff";
+  canvasContext.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
   if (template) {
     canvasContext.drawImage(template, 0, 0, invoiceCanvas.width, invoiceCanvas.height);
   } else {
@@ -1092,9 +1366,7 @@ async function renderCanvas() {
   const business = state.settings?.business || {};
   const invoiceTitle = state.settings?.invoice?.title || "Rechnung";
   const invoiceNumber = previewInvoiceNumber();
-  const validItems = state.invoiceDraft.items.filter(
-    (item) => String(item.description || "").trim() && toNumber(item.quantity) > 0
-  );
+  const validItems = getValidInvoiceItems();
 
   if (logo) {
     const maxWidth = 180;
@@ -1150,8 +1422,9 @@ async function renderCanvas() {
   canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, 369);
   canvasContext.textAlign = "left";
 
-  const tableTop = 394;
+  const tableTop = 404;
   canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
+  canvasContext.textBaseline = "middle";
   canvasContext.fillText("Pos", 68, tableTop);
   canvasContext.fillText("Beschreibung", 98, tableTop);
   canvasContext.textAlign = "right";
@@ -1159,6 +1432,7 @@ async function renderCanvas() {
   canvasContext.fillText("Menge", 644, tableTop);
   canvasContext.fillText("Summe €", 710, tableTop);
   canvasContext.textAlign = "left";
+  canvasContext.textBaseline = "top";
 
   let itemY = 430;
   validItems.forEach((item, index) => {
@@ -1178,7 +1452,11 @@ async function renderCanvas() {
     canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.textAlign = "right";
     canvasContext.fillText(formatAmount(item.unitPrice), 536, itemY);
-    canvasContext.fillText(`${formatAmount(item.quantity)} Std.`, 644, itemY);
+    canvasContext.fillText(
+      `${formatAmount(item.quantity)} ${String(item.unit || "Std.").trim()}`,
+      644,
+      itemY
+    );
     canvasContext.fillText(formatAmount(current.net), 710, itemY);
     canvasContext.textAlign = "left";
     itemY += hasDiscount ? 70 : 54;
@@ -1194,41 +1472,53 @@ async function renderCanvas() {
   const totalsStartY = Math.max(itemY + 18, 500);
   const drawAmountLine = (label, value, y, bold = false) => {
     canvasContext.textAlign = "left";
-    canvasContext.font = `${bold ? "bold " : ""}14px Calibri, Candara, "Segoe UI", sans-serif`;
+    canvasContext.font = `${bold ? "bold " : ""}${bold ? "16" : "14"}px Calibri, Candara, "Segoe UI", sans-serif`;
     canvasContext.fillText(label, 494, y);
     canvasContext.textAlign = "right";
     canvasContext.fillText(value, 734, y);
   };
 
+  const hasDiscountTotal = totals.discountTotal > 0;
   drawAmountLine("Netto", formatAmount(totals.subtotal), totalsStartY);
-  drawAmountLine(getPreviewTaxLabel(), formatAmount(totals.taxTotal), totalsStartY + 24);
-  drawAmountLine("Gesamtbetrag €", formatAmount(totals.grossTotal), totalsStartY + 48, true);
+  if (hasDiscountTotal) {
+    drawAmountLine("Rabatt-Abzug", `- ${formatAmount(totals.discountTotal)}`, totalsStartY + 24);
+  }
+  drawAmountLine(
+    getPreviewTaxLabel(),
+    formatAmount(totals.taxTotal),
+    totalsStartY + (hasDiscountTotal ? 48 : 24)
+  );
+  drawAmountLine("Gesamtbetrag €", formatAmount(totals.grossTotal), totalsStartY + 72, true);
 
   canvasContext.beginPath();
-  canvasContext.moveTo(492, totalsStartY + 74);
-  canvasContext.lineTo(738, totalsStartY + 74);
+  canvasContext.lineWidth = 1.8;
+  canvasContext.moveTo(492, totalsStartY + (hasDiscountTotal ? 98 : 74));
+  canvasContext.lineTo(738, totalsStartY + (hasDiscountTotal ? 98 : 74));
   canvasContext.stroke();
   canvasContext.textAlign = "left";
 
   const paymentLines = [
     `Fällig am: ${formatDate(state.invoiceDraft.dueDate)}`,
     business.paymentNote || "Fällig innerhalb von 14 Tagen ohne Abzug.",
-    state.invoiceDraft.notes || "",
-    business.footerNote || ""
+    state.invoiceDraft.notes || ""
   ].filter(Boolean);
 
-  let blockY = totalsStartY + 102;
+  let blockY = totalsStartY + 126;
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   paymentLines.forEach((line) => {
     drawWrappedText(canvasContext, line, 66, blockY, 560, 18, 3);
     blockY += 22;
   });
 
+  if (business.footerNote) {
+    drawWrappedText(canvasContext, business.footerNote, 66, Math.max(blockY + 26, 956), 610, 18, 3);
+  }
+
   const footerLine = [business.bankName, business.iban, business.bic, business.uid]
     .filter(Boolean)
     .join("; ");
   if (footerLine) {
-    canvasContext.fillText(footerLine, 58, 997);
+    canvasContext.fillText(footerLine, 58, 1064);
   }
 
   if (state.invoiceDraft.signatureDataUrl) {
@@ -1261,14 +1551,37 @@ function schedulePreviewRender() {
 async function saveSettings(event) {
   event.preventDefault();
   try {
+    const settingsPayload = readSettingsForm();
     const response = await api("/api/settings", {
       method: "PUT",
-      body: JSON.stringify({ settings: readSettingsForm() })
+      body: JSON.stringify({ settings: settingsPayload })
     });
 
+    const invoiceLogoFile = invoiceLogoFileInput?.files?.[0] || null;
+    const appLogoFile = appLogoFileInput?.files?.[0] || null;
+    if (invoiceLogoFile) {
+      await uploadLogoAsset("invoice", invoiceLogoFile);
+    }
+    if (appLogoFile) {
+      await uploadLogoAsset("app", appLogoFile);
+    }
+
     state.settings = response.settings;
+    state.auth.username = response.settings.auth?.username || state.auth.username;
+    if (invoiceLogoFileInput) {
+      invoiceLogoFileInput.value = "";
+    }
+    if (appLogoFileInput) {
+      appLogoFileInput.value = "";
+    }
+    refreshBrandAssets();
     populateSettingsForm();
-    setStatus("Einstellungen gespeichert.", "success");
+    setStatus(
+      invoiceLogoFile || appLogoFile
+        ? "Einstellungen und Logos gespeichert."
+        : "Einstellungen gespeichert.",
+      "success"
+    );
     schedulePreviewRender();
     closePanels();
   } catch (error) {
@@ -1486,8 +1799,57 @@ function handleArticleFormLiveInput() {
   }
 }
 
+function getValidInvoiceItems() {
+  return state.invoiceDraft.items.filter((item) => {
+    const hasArticle = String(item.articleId || "").trim();
+    const hasDescription = String(item.description || "").trim();
+    return Boolean((hasArticle || hasDescription) && toNumber(item.quantity) > 0);
+  });
+}
+
+function showInvoiceDraftWarning(message) {
+  setStatus(message, "error");
+  window.alert(message);
+}
+
+function compileClientTemplate(template, tokens) {
+  return String(template || "").replace(/\{\{(\w+)\}\}/g, (_, key) => tokens[key] ?? "");
+}
+
+function buildMailtoLink(invoice) {
+  const customerEmail = invoice.customer?.email || selectedCustomer()?.email || "";
+  const ownEmail =
+    state.settings?.business?.email ||
+    state.settings?.smtp?.ccEmail ||
+    state.settings?.smtp?.fromEmail ||
+    "";
+  const invoiceUrl = invoice.files?.pdfUrl
+    ? new URL(invoice.files.pdfUrl, window.location.origin).toString()
+    : "";
+  const tokens = {
+    invoiceNumber: invoice.invoiceNumber,
+    customerName: invoice.customer?.name || selectedCustomer()?.name || "",
+    companyName: state.settings?.business?.companyName || "",
+    invoiceUrl
+  };
+  const subject = compileClientTemplate(state.settings?.email?.subjectTemplate, tokens);
+  const bodyParts = [
+    compileClientTemplate(state.settings?.email?.bodyTemplate, tokens).trim(),
+    invoiceUrl ? `PDF-Link: ${invoiceUrl}` : ""
+  ].filter(Boolean);
+  const params = new URLSearchParams();
+  if (ownEmail) {
+    params.set("cc", ownEmail);
+  }
+  params.set("subject", subject || `Rechnung ${invoice.invoiceNumber}`);
+  params.set("body", bodyParts.join("\n\n"));
+  return `mailto:${encodeURIComponent(customerEmail)}?${params.toString()}`;
+}
+
 async function prepareInvoice() {
   if (!state.invoiceDraft.customerId) {
+    showInvoiceDraftWarning("Bitte zuerst einen Kunden auswählen.");
+    return;
     setStatus("Bitte zuerst einen Kunden auswählen.", "error");
     return;
   }
@@ -1496,6 +1858,8 @@ async function prepareInvoice() {
     (item) => String(item.description || "").trim() && toNumber(item.quantity) > 0
   );
   if (!validItems.length) {
+    showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst eine Leistung eintragen.");
+    return;
     setStatus("Bitte mindestens eine Leistung eintragen.", "error");
     return;
   }
@@ -1522,7 +1886,13 @@ async function sendInvoice() {
   sendInvoiceButton.textContent = "Rechnung wird gesendet...";
 
   try {
-    state.invoiceDraft.signatureDataUrl = hasSignatureStroke ? signaturePad.toDataURL("image/png") : "";
+    sendInvoiceButton.textContent = "Rechnung wird gesendet...";
+    const customer = selectedCustomer();
+    if (!customer?.email) {
+      showInvoiceDraftWarning("Beim ausgewählten Kunden ist keine E-Mail-Adresse hinterlegt.");
+      return;
+    }
+
     await renderCanvas();
     refreshSendPreview();
 
@@ -1537,7 +1907,7 @@ async function sendInvoice() {
         title: state.settings?.invoice?.title || "Rechnung",
         items: state.invoiceDraft.items.map((item) => ({
           ...item,
-          unit: "Stunden"
+          unit: String(item.unit || "Stunden").trim()
         })),
         imageDataUrl: invoiceCanvas.toDataURL("image/png")
       })
@@ -1545,12 +1915,13 @@ async function sendInvoice() {
 
     state.invoices = [response.invoice, ...state.invoices];
     state.settings = response.settings;
+    state.auth.username = response.settings.auth?.username || state.auth.username;
     populateSettingsForm();
     renderInvoiceHistory();
     closeSendDialog();
     setStatus(
-      response.email?.message || "Rechnung erstellt.",
-      response.email?.status === "failed" ? "error" : "success"
+      response.email?.message || "Rechnung erstellt. Mail-App wurde geöffnet.",
+      response.email?.status === "sent" ? "success" : "error"
     );
 
     const preservedCustomerId = state.invoiceDraft.customerId;
@@ -1577,24 +1948,27 @@ async function sendInvoice() {
 
 async function prepareInvoiceForSend() {
   if (!state.invoiceDraft.customerId) {
-    setStatus("Bitte zuerst einen Kunden auswählen.", "error");
+    showInvoiceDraftWarning("Bitte zuerst einen Kunden auswählen.");
     return;
   }
 
-  const validItems = state.invoiceDraft.items.filter(
-    (item) => String(item.description || "").trim() && toNumber(item.quantity) > 0
-  );
+  const validItems = getValidInvoiceItems();
   if (!validItems.length) {
-    setStatus("Bitte mindestens eine Leistung eintragen.", "error");
+    showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst eine Leistung eintragen.");
+    return;
+  }
+
+  if (!state.invoiceDraft.customerId) {
+    setStatus("Bitte zuerst einen Kunden auswählen.", "error");
     return;
   }
 
   createInvoiceButton.disabled = true;
   createInvoiceButton.textContent = "Vorschau wird vorbereitet...";
   try {
+    openSendDialog();
     await renderCanvas();
     refreshSendPreview();
-    openSendDialog();
     setStatus("Rechnung vorbereitet. Bitte prüfen, bei Bedarf unterschreiben und danach senden.", "info");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht vorbereitet werden.", "error");
@@ -1609,18 +1983,59 @@ async function handleAuthSubmit(event) {
 
   const username = authUsernameInput.value.trim();
   const password = authPasswordInput.value;
-  const confirmPassword = authPasswordConfirmInput.value;
-  const isRegister = !state.auth.hasUser;
 
   if (!username || !password) {
     setStatus("Bitte Benutzername und Kennwort eingeben.", "error");
     return;
   }
 
-  if (isRegister && password !== confirmPassword) {
+  try {
+    const response = await api(
+      state.auth.mode === "register" ? "/api/auth/register" : "/api/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify({ username, password })
+      }
+    );
+
+    window.localStorage.setItem(STORAGE_KEYS.authToken, response.token);
+    state.auth.hasUser = true;
+    state.auth.authenticated = true;
+    state.auth.username = response.username;
+    authForm.reset();
+    setAuthMode("login");
+    hideAuthOverlay();
+    await bootstrap();
+    return;
+  } catch (error) {
+    setStatus(
+      error.message ||
+        (state.auth.mode === "register"
+          ? "Benutzer konnte nicht angelegt werden."
+          : "Benutzername oder Kennwort ist nicht korrekt."),
+      "error"
+    );
+    return;
+  }
+
+  /*
+  if (username !== DEFAULT_USERNAME || password !== DEFAULT_PASSWORD) {
+    setStatus("Benutzername oder Kennwort ist nicht korrekt.", "error");
+    return;
     setStatus("Die Kennwörter stimmen nicht überein.", "error");
     return;
   }
+
+  window.localStorage.removeItem(STORAGE_KEYS.authUsername);
+  window.localStorage.removeItem(STORAGE_KEYS.authPasswordHash);
+  window.localStorage.setItem(STORAGE_KEYS.autoLoginUser, DEFAULT_USERNAME);
+  state.auth.hasUser = true;
+  state.auth.authenticated = true;
+  state.auth.username = DEFAULT_USERNAME;
+  authForm.reset();
+  hideAuthOverlay();
+  await bootstrap();
+  return;
 
   const passwordHash = await hashPassword(password);
   if (isRegister) {
@@ -1642,6 +2057,28 @@ async function handleAuthSubmit(event) {
   authForm.reset();
   hideAuthOverlay();
   await bootstrap();
+  */
+}
+
+async function handleLogout() {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Token kann bereits ungÃ¼ltig sein.
+  }
+
+  clearAuthToken();
+  resetAuthenticatedState();
+  closeSendDialog();
+  closeSignatureDialog();
+  closePanels();
+  if (logoutButton) {
+    logoutButton.hidden = true;
+  }
+  authForm.reset();
+  setAuthMode("login");
+  showAuthOverlay();
+  setStatus("Abgemeldet. Mit einem Benutzer erneut anmelden.", "info");
 }
 
 function registerServiceWorker() {
@@ -1671,6 +2108,10 @@ function bindPanelButtons() {
   panelOverlay.addEventListener("click", closePanels);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (!smtpInfoDialog.hidden) {
+        closeSmtpInfoDialog();
+        return;
+      }
       if (!signatureDialog.hidden) {
         closeSignatureDialog();
         return;
@@ -1736,11 +2177,42 @@ function bindDialogs() {
   });
   clearSignatureButton.addEventListener("click", clearSignaturePad);
   sendInvoiceButton.addEventListener("click", sendInvoice);
+  openSmtpInfoButton?.addEventListener("click", openSmtpInfoDialog);
+  closeSmtpInfoDialogButton?.addEventListener("click", closeSmtpInfoDialog);
+  confirmSmtpInfoDialogButton?.addEventListener("click", closeSmtpInfoDialog);
+  smtpInfoDialog?.addEventListener("click", (event) => {
+    if (event.target === smtpInfoDialog) {
+      closeSmtpInfoDialog();
+    }
+  });
 }
 
 function bindStaticEvents() {
   invoiceForm.addEventListener("submit", (event) => event.preventDefault());
   settingsForm.addEventListener("submit", saveSettings);
+  settingsFields.businessEmail.addEventListener("input", (event) => {
+    syncBusinessEmailDefaults(event.target.value);
+  });
+  toggleSettingsAuthPasswordButton?.addEventListener("click", () => {
+    settingsAuthPasswordInput.type =
+      settingsAuthPasswordInput.type === "password" ? "text" : "password";
+    updateSettingsAuthPasswordToggleLabel();
+  });
+  toggleSmtpPassButton?.addEventListener("click", () => {
+    smtpPassInput.type = smtpPassInput.type === "password" ? "text" : "password";
+    updateSmtpPassToggleLabel();
+  });
+  addCcEmailButton?.addEventListener("click", () => addCcEmailRow(""));
+  ccEmailList?.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-cc]");
+    if (!removeButton) {
+      return;
+    }
+
+    const removeIndex = Number(removeButton.dataset.removeCc);
+    const entries = readCcEmailInputs().filter((_, index) => index !== removeIndex);
+    renderCcEmailInputs(entries);
+  });
   customerForm.addEventListener("submit", saveCustomer);
   articleForm.addEventListener("submit", saveArticle);
   articleForm.addEventListener("input", handleArticleFormLiveInput);
@@ -1750,6 +2222,10 @@ function bindStaticEvents() {
   invoiceItemsTable.addEventListener("change", handleInvoiceTableChange);
   invoiceItemsTable.addEventListener("click", handleInvoiceTableClick);
   addInvoiceItemButton.addEventListener("click", addInvoiceItem);
+  addInvoiceItemInPanelButton?.addEventListener("click", () => {
+    addInvoiceItem();
+    closePanelsIfMobile();
+  });
   createInvoiceButton.addEventListener("click", prepareInvoiceForSend);
   resetCustomerFormButton.addEventListener("click", resetCustomerForm);
   resetArticleFormButton.addEventListener("click", resetArticleForm);
@@ -1759,6 +2235,10 @@ function bindStaticEvents() {
   invoiceReferenceInput.addEventListener("input", handleInvoiceMetaInput);
   invoiceNotesInput.addEventListener("input", handleInvoiceMetaInput);
   authForm.addEventListener("submit", handleAuthSubmit);
+  authSwitchModeButton?.addEventListener("click", () => {
+    setAuthMode(state.auth.mode === "login" ? "register" : "login");
+  });
+  logoutButton?.addEventListener("click", handleLogout);
 }
 
 async function bootstrap() {
@@ -1775,6 +2255,7 @@ async function bootstrap() {
     }
 
     populateSettingsForm();
+    refreshBrandAssets();
     fillCustomerForm(null);
     fillArticleForm(null);
     syncInvoiceMetaInputs();
@@ -1784,6 +2265,9 @@ async function bootstrap() {
     updateInvoiceTotalsDisplay();
     renderInvoiceHistory();
     await renderCanvas();
+    if (logoutButton) {
+      logoutButton.hidden = false;
+    }
     setStatus("Bereit. Rechnung kann erstellt werden.", "success");
   } catch (error) {
     console.error(error);
@@ -1796,11 +2280,22 @@ async function initializeApp() {
   panelOverlay.hidden = true;
   sendDialog.hidden = true;
   signatureDialog.hidden = true;
+  smtpInfoDialog.hidden = true;
   authOverlay.hidden = true;
+  if (logoutButton) {
+    logoutButton.hidden = true;
+  }
   document.body.classList.remove("panel-open");
-  loadAuthState();
-  setAuthMode(state.auth.hasUser ? "login" : "register");
+  try {
+    await loadAuthState();
+  } catch (error) {
+    console.error(error);
+    setStatus("Anmeldedaten konnten nicht geladen werden.", "error");
+  }
+  setAuthMode("login");
+  updateSettingsAuthPasswordToggleLabel();
 
+  authUsernameInput.value = state.auth.username || "";
   if (state.auth.authenticated) {
     hideAuthOverlay();
     await bootstrap();
@@ -1808,7 +2303,7 @@ async function initializeApp() {
   }
 
   showAuthOverlay();
-  setStatus(state.auth.hasUser ? "Bitte anmelden." : "Bitte Benutzer registrieren.");
+  setStatus("Bitte anmelden.");
 }
 
 loadCollapsedState();

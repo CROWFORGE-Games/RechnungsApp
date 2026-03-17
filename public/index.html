@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="RechnungsApp" />
     <title>RechnungsApp</title>
-    <link rel="icon" href="/assets/KaindlLogo.png" type="image/png" />
-    <link rel="apple-touch-icon" href="/assets/KaindlLogo.png" />
+    <link id="appFavicon" rel="icon" href="/assets/KaindlLogo.png" type="image/png" />
+    <link id="appleTouchIcon" rel="apple-touch-icon" href="/assets/KaindlLogo.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -25,7 +25,7 @@
         </div>
 
         <div class="tool-rail__brand-wrap">
-          <img class="tool-rail__brand" src="/assets/KaindlBanner.png" alt="Kaindl" />
+          <img class="tool-rail__brand" data-banner-logo src="/assets/KaindlBanner.png" alt="Kaindl" />
         </div>
 
         <div class="tool-rail__actions">
@@ -49,7 +49,8 @@
 
         <div class="tool-rail__footer">
           <div class="hero-status" id="statusBanner">Lade Daten...</div>
-          <div class="app-version" id="appVersion">V0.0.1</div>
+          <button class="ghost logout-button" id="logoutButton" type="button" hidden>Abmelden</button>
+          <div class="app-version" id="appVersion">V0.2.0</div>
         </div>
       </aside>
 
@@ -60,7 +61,7 @@
               <p class="section-kicker">Startansicht</p>
               <h2>Rechnung zusammenstellen</h2>
             </div>
-            <p class="section-note" id="templateHint">
+            <p class="section-note" id="templateHint" hidden>
               Lege deine Vorlage als `public/assets/invoice-template.png` oder `public/assets/image.png`
               ab. Das Banner für die Rechnung wird automatisch aus `public/assets/KaindlBanner.png`
               geladen.
@@ -90,13 +91,6 @@
             </label>
           </form>
 
-          <div class="invoice-toolbar">
-            <div class="toolbar-group">
-              <button class="secondary" id="addInvoiceItem" type="button">Leistung hinzufügen</button>
-            </div>
-            <div class="totals-chip" id="invoiceTotals">Gesamt: 0,00 EUR</div>
-          </div>
-
           <div class="table-wrap invoice-items-wrap">
             <table class="invoice-table">
               <thead>
@@ -105,7 +99,7 @@
                   <th>Beschreibung</th>
                   <th>Menge</th>
                   <th>Einheit</th>
-                  <th>Verkaufspreis</th>
+                  <th>Nettopreis</th>
                   <th>MwSt. %</th>
                   <th>Rabatt %</th>
                   <th>Summe</th>
@@ -114,6 +108,10 @@
               </thead>
               <tbody id="invoiceItemsTable"></tbody>
             </table>
+            <div class="invoice-items-actions">
+              <div class="totals-chip" id="invoiceTotals">Gesamt: 0,00 EUR</div>
+              <button class="secondary" id="addInvoiceItem" type="button">Leistung hinzufügen</button>
+            </div>
           </div>
 
           <div class="preview-layout">
@@ -126,7 +124,9 @@
             </div>
 
             <div class="side-card">
-              <h3>Letzte Rechnungen</h3>
+              <div class="preview-head">
+                <h3>Letzte Rechnungen</h3>
+              </div>
               <div id="invoiceHistory" class="history-list"></div>
             </div>
           </div>
@@ -138,9 +138,9 @@
 
     <div class="auth-overlay" id="authOverlay" hidden>
       <div class="auth-card">
-        <img class="auth-card__logo" src="/assets/KaindlBanner.png" alt="Kaindl" />
-        <p class="section-kicker" id="authModeKicker">Erster Start</p>
-        <h2 id="authTitle">Benutzer registrieren</h2>
+        <img class="auth-card__logo" data-banner-logo src="/assets/KaindlBanner.png" alt="Kaindl" />
+        <p class="section-kicker" id="authModeKicker">Anmeldung</p>
+        <h2 id="authTitle">Anmelden</h2>
         <p class="panel-note" id="authText">
           Lege einmal Benutzername und Kennwort fest. Danach meldet sich die App über Autologin
           automatisch an.
@@ -154,12 +154,9 @@
             Kennwort
             <input id="authPassword" name="password" type="password" autocomplete="current-password" required />
           </label>
-          <label class="span-2" id="authConfirmWrap">
-            Kennwort wiederholen
-            <input id="authPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" />
-          </label>
           <div class="actions span-2 auth-actions">
-            <button class="primary" id="authSubmit" type="submit">Registrieren</button>
+            <button class="ghost" id="authSwitchMode" type="button">Neuen Benutzer anlegen</button>
+            <button class="primary" id="authSubmit" type="submit">Anmelden</button>
           </div>
         </form>
       </div>
@@ -265,12 +262,12 @@
           Bezeichnung
           <input name="name" type="text" required />
         </label>
-        <div class="static-field">
-          <span class="static-field__label">Einheit</span>
-          <span class="static-field__value">Stunden</span>
-        </div>
         <label>
-          Verkaufspreis
+          Einheit
+          <input name="unit" type="text" />
+        </label>
+        <label>
+          Nettopreis
           <input name="unitPrice" type="number" min="0" step="0.01" />
         </label>
         <label>
@@ -300,6 +297,9 @@
           </thead>
           <tbody id="articlesTable"></tbody>
         </table>
+        <div class="panel-table__actions">
+          <button class="secondary" id="addInvoiceItemInPanel" type="button">Leistung hinzufügen</button>
+        </div>
       </div>
     </aside>
 
@@ -317,6 +317,47 @@
       </p>
 
       <form id="settingsForm" class="form-grid settings-grid">
+        <fieldset class="settings-section span-2">
+          <legend>Benutzer</legend>
+          <div class="settings-section__grid">
+            <label>
+              Benutzername
+              <input name="authUsername" type="text" autocomplete="username" />
+            </label>
+            <label>
+              Kennwort
+              <input
+                name="authPassword"
+                id="settingsAuthPassword"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Leer lassen, um es nicht zu ändern"
+              />
+              <button
+                class="ghost password-toggle password-toggle--icon"
+                id="toggleSettingsAuthPassword"
+                type="button"
+                aria-label="Kennwort anzeigen"
+                title="Kennwort anzeigen"
+              ></button>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-section span-2">
+          <legend>Logos</legend>
+          <div class="settings-section__grid">
+            <label>
+              Rechnungslogo
+              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
+            </label>
+            <label>
+              App-Logo
+              <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
+            </label>
+          </div>
+        </fieldset>
+
         <fieldset class="settings-section span-2">
           <legend>Firma</legend>
           <div class="settings-section__grid">
@@ -417,20 +458,29 @@
               <input name="smtpPort" type="number" min="1" />
             </label>
             <label>
-              SMTP User
+              <span class="field-title">SMTP User</span>
               <input name="smtpUser" type="text" />
             </label>
             <label>
-              SMTP Passwort
-              <input name="smtpPass" type="password" />
+              <span class="label-with-action">
+                <span>SMTP Passwort</span>
+                <button class="ghost info-button" id="openSmtpInfo" type="button" aria-label="Hilfe zum SMTP Passwort anzeigen">i</button>
+              </span>
+              <div class="password-field">
+                <input name="smtpPass" id="smtpPass" type="password" />
+                <button
+                  class="ghost password-toggle password-toggle--icon"
+                  id="toggleSmtpPass"
+                  type="button"
+                  aria-label="SMTP Passwort anzeigen"
+                  title="SMTP Passwort anzeigen"
+                ></button>
+              </div>
             </label>
             <label>
-              Versand von
-              <input name="fromEmail" type="email" />
-            </label>
-            <label>
-              CC an eigene E-Mail
-              <input name="ccEmail" type="email" />
+              CC an eigene E-Mail / weitere Empfänger
+              <div class="cc-list" id="ccEmailList"></div>
+              <button class="ghost cc-add-button" id="addCcEmail" type="button">+ Empfänger</button>
             </label>
             <label class="checkbox span-2">
               <input name="smtpSecure" type="checkbox" />
@@ -454,7 +504,7 @@
     </aside>
 
     <div class="dialog-overlay" id="sendDialog" hidden>
-      <div class="dialog-card">
+      <div class="dialog-card dialog-card--preview">
         <div class="side-panel__head">
           <div>
             <p class="section-kicker">Rechnung prüfen</p>
@@ -500,6 +550,37 @@
         <div class="actions dialog-actions">
           <button class="ghost" id="cancelSignatureButton" type="button">Abbrechen</button>
           <button class="primary" id="confirmSignatureButton" type="button">Bestätigen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dialog-overlay" id="smtpInfoDialog" hidden>
+      <div class="dialog-card dialog-card--compact">
+        <div class="side-panel__head">
+          <div>
+            <p class="section-kicker">SMTP Hilfe</p>
+            <h2>Google App-Passwort</h2>
+          </div>
+          <button class="icon-button" id="closeSmtpInfoDialog" type="button" aria-label="Dialog schließen">×</button>
+        </div>
+
+        <div class="info-card">
+          <p class="panel-note">So kommst du an das App-Passwort:</p>
+          <ol class="info-list">
+            <li>In deinem Google-Konto die 2-Faktor-Anmeldung aktivieren.</li>
+            <li>
+              Danach App-Passwörter öffnen:
+              <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">
+                myaccount.google.com/apppasswords
+              </a>
+            </li>
+            <li>Ein neues App-Passwort erzeugen.</li>
+            <li>Den 16-stelligen Code ohne Leerzeichen in SMTP Passwort eintragen.</li>
+          </ol>
+        </div>
+
+        <div class="actions dialog-actions">
+          <button class="primary" id="confirmSmtpInfoDialog" type="button">Verstanden</button>
         </div>
       </div>
     </div>

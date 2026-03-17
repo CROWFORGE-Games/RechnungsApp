@@ -1,4 +1,4 @@
-const STATIC_CACHE = "rechnungsapp-static-v4";
+const STATIC_CACHE = "rechnungsapp-static-v18";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -43,7 +43,11 @@ self.addEventListener("fetch", (event) => {
       requestUrl.pathname
     );
 
-  if (isAppShellAsset) {
+  const isBrandAsset =
+    requestUrl.origin === self.location.origin &&
+    ["/assets/KaindlLogo.png", "/assets/KaindlBanner.png"].includes(requestUrl.pathname);
+
+  if (isAppShellAsset || isBrandAsset) {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {

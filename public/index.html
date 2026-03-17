@@ -8,9 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="RechnungsApp" />
     <title>RechnungsApp</title>
-    <link id="appFavicon" rel="icon" href="/assets/KaindlLogo.png" type="image/png" />
-    <link id="appleTouchIcon" rel="apple-touch-icon" href="/assets/KaindlLogo.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link id="appFavicon" rel="icon" href="/api/assets/logo/app" type="image/png" />
+    <link id="appleTouchIcon" rel="apple-touch-icon" href="/api/assets/logo/app" />
+    <link rel="manifest" href="/api/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -25,7 +25,7 @@
         </div>
 
         <div class="tool-rail__brand-wrap">
-          <img class="tool-rail__brand" data-banner-logo src="/assets/KaindlBanner.png" alt="Kaindl" />
+          <img class="tool-rail__brand" data-banner-logo src="/api/assets/logo/invoice" alt="Kaindl" />
         </div>
 
         <div class="tool-rail__actions">
@@ -50,7 +50,7 @@
         <div class="tool-rail__footer">
           <div class="hero-status" id="statusBanner">Lade Daten...</div>
           <button class="ghost logout-button" id="logoutButton" type="button" hidden>Abmelden</button>
-          <div class="app-version" id="appVersion">V0.2.0</div>
+          <div class="app-version" id="appVersion">V0.3.0</div>
         </div>
       </aside>
 
@@ -138,7 +138,7 @@
 
     <div class="auth-overlay" id="authOverlay" hidden>
       <div class="auth-card">
-        <img class="auth-card__logo" data-banner-logo src="/assets/KaindlBanner.png" alt="Kaindl" />
+        <img class="auth-card__logo" data-banner-logo src="/api/assets/logo/invoice" alt="Kaindl" />
         <p class="section-kicker" id="authModeKicker">Anmeldung</p>
         <h2 id="authTitle">Anmelden</h2>
         <p class="panel-note" id="authText">

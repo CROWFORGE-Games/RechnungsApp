@@ -1,8 +1,13 @@
-const APP_VERSION = "V0.2.0";
+const APP_VERSION = "V0.3.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
   authToken: "rechnungsapp.auth.token"
+};
+
+const BRAND_ASSET_URLS = {
+  invoice: "/api/assets/logo/invoice",
+  app: "/api/assets/logo/app"
 };
 
 const state = {
@@ -330,6 +335,19 @@ function clearAuthToken() {
   window.localStorage.removeItem(STORAGE_KEYS.authToken);
 }
 
+function buildAuthenticatedFileUrl(filePath) {
+  if (!filePath) {
+    return "";
+  }
+
+  const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
+  const url = new URL(filePath, window.location.origin);
+  if (authToken) {
+    url.searchParams.set("token", authToken);
+  }
+  return url.toString();
+}
+
 function resetAuthenticatedState() {
   state.auth.authenticated = false;
   state.auth.username = "";
@@ -600,6 +618,7 @@ async function loadLogo() {
   }
 
   const candidates = [
+    BRAND_ASSET_URLS.invoice,
     "/assets/KaindlBanner.png",
     "/assets/logo.png",
     "/assets/logo.png.png",
@@ -808,13 +827,13 @@ function updateSettingsAuthPasswordToggleLabel() {
 function refreshBrandAssets() {
   const stamp = `?v=${Date.now()}`;
   bannerLogoImages.forEach((image) => {
-    image.src = `/assets/KaindlBanner.png${stamp}`;
+    image.src = `${BRAND_ASSET_URLS.invoice}${stamp}`;
   });
   if (appFavicon) {
-    appFavicon.href = `/assets/KaindlLogo.png${stamp}`;
+    appFavicon.href = `${BRAND_ASSET_URLS.app}${stamp}`;
   }
   if (appleTouchIcon) {
-    appleTouchIcon.href = `/assets/KaindlLogo.png${stamp}`;
+    appleTouchIcon.href = `${BRAND_ASSET_URLS.app}${stamp}`;
   }
   logoState.loaded = false;
   logoState.image = null;
@@ -1246,6 +1265,7 @@ function renderInvoiceHistory() {
     .slice(0, 8)
     .map((invoice) => {
       const emailMessage = invoice.email?.message || "Noch kein Versandstatus";
+      const pdfUrl = buildAuthenticatedFileUrl(invoice.files?.pdfUrl);
       const fileLink = invoice.files?.pdfUrl
         ? `<a href="${escapeHtml(invoice.files.pdfUrl)}" target="_blank" rel="noreferrer">PDF öffnen</a>`
         : "";

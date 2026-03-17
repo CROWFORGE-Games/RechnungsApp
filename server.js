@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getStore as getBlobStore } from "@netlify/blobs";
 import express from "express";
 import nodemailer from "nodemailer";
 import { PDFDocument } from "pdf-lib";
@@ -11,17 +12,22 @@ import { PDFDocument } from "pdf-lib";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, "public");
+const PUBLIC_ASSET_DIR = path.join(PUBLIC_DIR, "assets");
+const IS_NETLIFY = process.env.NETLIFY === "true";
 const STORAGE_ROOT = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
   : path.join(__dirname, "data");
-const DATA_FILE = process.env.STORAGE_DIR
-  ? path.join(STORAGE_ROOT, "store.json")
-  : path.join(__dirname, "data", "store.json");
-const GENERATED_DIR = process.env.STORAGE_DIR
-  ? path.join(STORAGE_ROOT, "generated")
-  : path.join(__dirname, "generated");
+const DATA_FILE = path.join(STORAGE_ROOT, "store.json");
+const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
+const ASSET_STORAGE_DIR = path.join(STORAGE_ROOT, "assets");
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
+const BLOB_STORE_NAME = "rechnungsapp";
+const STORE_BLOB_KEY = "store.json";
+const LOGO_KEYS = {
+  invoice: "assets/KaindlBanner.png",
+  app: "assets/KaindlLogo.png"
+};
 
 const DEFAULT_STORE = {
   settings: {
@@ -81,8 +87,21 @@ const DEFAULT_SETTINGS = {
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
-app.use("/generated", express.static(GENERATED_DIR));
 app.use(express.static(PUBLIC_DIR));
+
+let blobStoreCache = null;
+
+function getAppBlobStore() {
+  if (!IS_NETLIFY) {
+    return null;
+  }
+
+  if (!blobStoreCache) {
+    blobStoreCache = getBlobStore(BLOB_STORE_NAME);
+  }
+
+  return blobStoreCache;
+}
 
 function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -167,35 +186,122 @@ function mergeStore(raw = {}) {
   };
 }
 
+function createInitialStore() {
+  return {
+    users: [createUserRecord({ username: "admin", password: "admin" })],
+    sessions: []
+  };
+}
+
+function inferMimeType(fileName = "") {
+  if (fileName.endsWith(".pdf")) {
+    return "application/pdf";
+  }
+  if (fileName.endsWith(".png")) {
+    return "image/png";
+  }
+  if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  if (fileName.endsWith(".webp")) {
+    return "image/webp";
+  }
+  if (fileName.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+  if (fileName.endsWith(".json")) {
+    return "application/json; charset=utf-8";
+  }
+  return "application/octet-stream";
+}
+
+function toArrayBuffer(value) {
+  if (value instanceof ArrayBuffer) {
+    return value;
+  }
+
+  const buffer = value instanceof Uint8Array ? value : Buffer.from(value);
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
+
+async function readBlobJson(key) {
+  const store = getAppBlobStore();
+  if (!store) {
+    return null;
+  }
+  return store.get(key, { type: "json" });
+}
+
+async function writeBlobJson(key, value) {
+  const store = getAppBlobStore();
+  if (!store) {
+    return;
+  }
+
+  await store.set(key, JSON.stringify(value, null, 2), {
+    metadata: { contentType: "application/json; charset=utf-8" }
+  });
+}
+
+async function readBlobBinary(key) {
+  const store = getAppBlobStore();
+  if (!store) {
+    return null;
+  }
+
+  const data = await store.get(key, { type: "arrayBuffer" });
+  return data ? Buffer.from(data) : null;
+}
+
+async function writeBlobBinary(key, value, contentType) {
+  const store = getAppBlobStore();
+  if (!store) {
+    return;
+  }
+
+  await store.set(key, toArrayBuffer(value), {
+    metadata: { contentType }
+  });
+}
+
 async function ensureDataFiles() {
+  if (IS_NETLIFY) {
+    const existing = await readBlobJson(STORE_BLOB_KEY);
+    if (!existing) {
+      await writeBlobJson(STORE_BLOB_KEY, createInitialStore());
+    }
+    return;
+  }
+
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.mkdir(GENERATED_DIR, { recursive: true });
+  await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
 
   try {
     await fs.access(DATA_FILE);
   } catch {
-    await fs.writeFile(
-      DATA_FILE,
-      JSON.stringify(
-        {
-          users: [createUserRecord({ username: "admin", password: "admin" })],
-          sessions: []
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
+    await fs.writeFile(DATA_FILE, JSON.stringify(createInitialStore(), null, 2), "utf8");
   }
 }
 
 async function readStore() {
   await ensureDataFiles();
+
+  if (IS_NETLIFY) {
+    const raw = (await readBlobJson(STORE_BLOB_KEY)) || createInitialStore();
+    return mergeStore(raw);
+  }
+
   const raw = await fs.readFile(DATA_FILE, "utf8");
   return mergeStore(JSON.parse(raw));
 }
 
 async function writeStore(store) {
+  if (IS_NETLIFY) {
+    await writeBlobJson(STORE_BLOB_KEY, store);
+    return;
+  }
+
   await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8");
 }
 
@@ -291,6 +397,12 @@ function getSessionToken(req) {
   if (header.startsWith("Bearer ")) {
     return header.slice(7).trim();
   }
+
+  const queryToken = req.query?.token;
+  if (typeof queryToken === "string") {
+    return queryToken.trim();
+  }
+
   return "";
 }
 
@@ -370,29 +482,117 @@ function getMailSettings(settings) {
     user: process.env.SMTP_USER || settings.smtp.user,
     pass: process.env.SMTP_PASS || settings.smtp.pass,
     fromEmail: process.env.SMTP_FROM || settings.smtp.user || settings.business.email,
-    ccEmail: process.env.SMTP_CC || settings.business.email || settings.smtp.ccEmail
+    ccEmail: process.env.SMTP_CC || settings.smtp.ccEmail || settings.business.email
   };
 }
 
 function isMailConfigured(mailSettings) {
-  return Boolean(
-    mailSettings.host &&
-      mailSettings.port &&
-      mailSettings.user &&
-      mailSettings.pass
-  );
+  return Boolean(mailSettings.host && mailSettings.port && mailSettings.user && mailSettings.pass);
+}
+
+function getLogoFileName(kind) {
+  return path.basename(LOGO_KEYS[kind] || "");
+}
+
+function getLogoFallbackPath(kind) {
+  const fileName = getLogoFileName(kind);
+  return fileName ? path.join(PUBLIC_ASSET_DIR, fileName) : "";
+}
+
+async function readStoredLogo(kind) {
+  const blobKey = LOGO_KEYS[kind];
+  if (!blobKey) {
+    return null;
+  }
+
+  if (IS_NETLIFY) {
+    return readBlobBinary(blobKey);
+  }
+
+  const localPath = path.join(ASSET_STORAGE_DIR, getLogoFileName(kind));
+  try {
+    return await fs.readFile(localPath);
+  } catch {
+    return null;
+  }
+}
+
+async function saveLogoAsset(kind, imageDataUrl) {
+  const blobKey = LOGO_KEYS[kind];
+  if (!blobKey) {
+    throw new Error("Unbekannte Logo-Art.");
+  }
+
+  if (!String(imageDataUrl || "").startsWith("data:image/png;base64,")) {
+    throw new Error("Logo muss als PNG-Bild hochgeladen werden.");
+  }
+
+  const imageBuffer = Buffer.from(String(imageDataUrl).split(",")[1] || "", "base64");
+
+  if (IS_NETLIFY) {
+    await writeBlobBinary(blobKey, imageBuffer, "image/png");
+    return;
+  }
+
+  await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
+  await fs.writeFile(path.join(ASSET_STORAGE_DIR, getLogoFileName(kind)), imageBuffer);
+}
+
+function sanitizeStoredFileInfo(fileInfo) {
+  return {
+    pdfName: fileInfo.pdfName,
+    pdfUrl: fileInfo.pdfUrl,
+    pngName: fileInfo.pngName,
+    pngUrl: fileInfo.pngUrl
+  };
+}
+
+function appendTokenToPath(filePath, token) {
+  if (!filePath || !token) {
+    return filePath || "";
+  }
+
+  const url = new URL(filePath, "http://localhost");
+  url.searchParams.set("token", token);
+  return `${url.pathname}${url.search}`;
+}
+
+function serializeInvoiceForClient(invoice, token) {
+  if (!invoice) {
+    return invoice;
+  }
+
+  const files = invoice.files
+    ? {
+        ...invoice.files,
+        pdfUrl: appendTokenToPath(invoice.files.pdfUrl, token),
+        pngUrl: appendTokenToPath(invoice.files.pngUrl, token)
+      }
+    : invoice.files;
+
+  return {
+    ...invoice,
+    files
+  };
 }
 
 async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   if (!imageDataUrl?.startsWith("data:image/png;base64,")) {
-    return { pdfPath: null, pdfUrl: null, pngPath: null, pngUrl: null };
+    return {
+      pdfName: null,
+      pdfUrl: null,
+      pngName: null,
+      pngUrl: null,
+      pdfBuffer: null
+    };
   }
 
-  const baseName = `${user.username}_${invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_");
-  const pngPath = path.join(GENERATED_DIR, `${baseName}.png`);
-  const pdfPath = path.join(GENERATED_DIR, `${baseName}.pdf`);
+  const baseName = `${user.id}_${invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_");
+  const pngName = `${baseName}.png`;
+  const pdfName = `${baseName}.pdf`;
+  const pngKey = `generated/${pngName}`;
+  const pdfKey = `generated/${pdfName}`;
   const pngBuffer = Buffer.from(imageDataUrl.split(",")[1], "base64");
-  await fs.writeFile(pngPath, pngBuffer);
 
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595.28, 841.89]);
@@ -406,35 +606,73 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   });
 
   const pdfBytes = await pdfDoc.save();
-  await fs.writeFile(pdfPath, pdfBytes);
+  const pdfBuffer = Buffer.from(pdfBytes);
+
+  if (IS_NETLIFY) {
+    await writeBlobBinary(pngKey, pngBuffer, "image/png");
+    await writeBlobBinary(pdfKey, pdfBytes, "application/pdf");
+  } else {
+    await fs.mkdir(GENERATED_DIR, { recursive: true });
+    await fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer);
+    await fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer);
+  }
 
   return {
-    pdfPath,
-    pdfUrl: `/generated/${baseName}.pdf`,
-    pngPath,
-    pngUrl: `/generated/${baseName}.png`
+    pdfName,
+    pdfUrl: `/api/files/generated/${pdfName}`,
+    pngName,
+    pngUrl: `/api/files/generated/${pngName}`,
+    pdfBuffer
   };
 }
 
-async function saveLogoAsset(kind, imageDataUrl) {
-  const targets = {
-    invoice: path.join(PUBLIC_DIR, "assets", "KaindlBanner.png"),
-    app: path.join(PUBLIC_DIR, "assets", "KaindlLogo.png")
+function getManifestPayload() {
+  return {
+    name: "RechnungsApp",
+    short_name: "Rechnung",
+    lang: "de",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#eaf4ee",
+    theme_color: "#3f8a5a",
+    description: "Mobile Rechnungs-App für Kunden, Leistungen, Vorschau und Versand.",
+    icons: [
+      {
+        src: "/api/assets/logo/app",
+        sizes: "1024x1024",
+        type: "image/png",
+        purpose: "any"
+      },
+      {
+        src: "/assets/app-maskable.svg",
+        sizes: "any",
+        type: "image/svg+xml",
+        purpose: "maskable"
+      }
+    ]
   };
+}
 
-  const targetFile = targets[kind];
-  if (!targetFile) {
-    throw new Error("Unbekannte Logo-Art.");
+function findReferencedFile(user, fileName) {
+  return user.invoices.find((invoice) => {
+    const files = invoice.files || {};
+    return [files.pdfName, files.pngName, files.pdfUrl, files.pngUrl].some((value) =>
+      String(value || "").includes(fileName)
+    );
+  });
+}
+
+async function readGeneratedFile(fileName) {
+  if (IS_NETLIFY) {
+    return readBlobBinary(`generated/${fileName}`);
   }
 
-  if (!String(imageDataUrl || "").startsWith("data:image/png;base64,")) {
-    throw new Error("Logo muss als PNG-Bild hochgeladen werden.");
+  try {
+    return await fs.readFile(path.join(GENERATED_DIR, fileName));
+  } catch {
+    return null;
   }
-
-  const rawBase64 = String(imageDataUrl).split(",")[1] || "";
-  const imageBuffer = Buffer.from(rawBase64, "base64");
-  await fs.mkdir(path.dirname(targetFile), { recursive: true });
-  await fs.writeFile(targetFile, imageBuffer);
 }
 
 async function sendInvoiceEmail(user, invoice, fileInfo) {
@@ -470,10 +708,11 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
   };
 
   const attachments = [];
-  if (fileInfo.pdfPath) {
+  if (fileInfo.pdfBuffer) {
     attachments.push({
       filename: `${invoice.invoiceNumber}.pdf`,
-      path: fileInfo.pdfPath
+      content: fileInfo.pdfBuffer,
+      contentType: "application/pdf"
     });
   }
 
@@ -529,13 +768,75 @@ function buildInvoiceRecord(user, payload) {
   };
 }
 
+app.get("/api/manifest.webmanifest", (_req, res) => {
+  res.type("application/manifest+json").send(JSON.stringify(getManifestPayload()));
+});
+
+app.get("/api/assets/logo/:kind", async (req, res, next) => {
+  try {
+    const kind = String(req.params.kind || "").trim();
+    if (!LOGO_KEYS[kind]) {
+      res.status(404).end();
+      return;
+    }
+
+    const storedLogo = await readStoredLogo(kind);
+    if (storedLogo) {
+      res.setHeader("Cache-Control", "no-store");
+      res.type("image/png").send(storedLogo);
+      return;
+    }
+
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.sendFile(getLogoFallbackPath(kind));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/files/generated/:fileName", async (req, res, next) => {
+  try {
+    const fileName = path.basename(String(req.params.fileName || ""));
+    if (!fileName) {
+      res.status(404).end();
+      return;
+    }
+
+    const store = await readStore();
+    const token = getSessionToken(req);
+    const { user } = findUserBySession(store, token);
+    if (!user) {
+      res.status(401).json({ error: "Bitte neu anmelden." });
+      return;
+    }
+
+    if (!findReferencedFile(user, fileName)) {
+      res.status(404).end();
+      return;
+    }
+
+    const fileBuffer = await readGeneratedFile(fileName);
+    if (!fileBuffer) {
+      res.status(404).end();
+      return;
+    }
+
+    res.setHeader("Cache-Control", "private, no-store");
+    res.type(inferMimeType(fileName)).send(fileBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
     res.json({
       settings: getUserSettingsForClient(req.user),
       customers: req.user.customers,
       articles: req.user.articles,
-      invoices: [...req.user.invoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      invoices: [...req.user.invoices]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map((invoice) => serializeInvoiceForClient(invoice, req.session.token))
     });
   } catch (error) {
     next(error);
@@ -780,9 +1081,9 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
   try {
     const invoice = buildInvoiceRecord(req.user, req.body || {});
     const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl);
-    invoice.files = fileInfo;
-    const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
+    invoice.files = sanitizeStoredFileInfo(fileInfo);
 
+    const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
     let emailResult;
     if (deliveryMethod === "external-app") {
       emailResult = {
@@ -806,7 +1107,7 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
     await writeStore(req.store);
 
     res.status(201).json({
-      invoice,
+      invoice: serializeInvoiceForClient(invoice, req.session.token),
       email: emailResult,
       settings: getUserSettingsForClient(req.user)
     });
@@ -827,17 +1128,24 @@ app.get("*", (_req, res) => {
 });
 
 await ensureDataFiles();
-app.listen(PORT, HOST, () => {
-  const interfaces = os.networkInterfaces();
-  const urls = [`http://localhost:${PORT}`];
 
-  Object.values(interfaces)
-    .flat()
-    .filter((entry) => entry && entry.family === "IPv4" && !entry.internal)
-    .forEach((entry) => {
-      urls.push(`http://${entry.address}:${PORT}`);
-    });
+export { app, ensureDataFiles };
 
-  console.log("RechnungsApp läuft unter:");
-  urls.forEach((url) => console.log(`- ${url}`));
-});
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+
+if (isDirectRun) {
+  app.listen(PORT, HOST, () => {
+    const interfaces = os.networkInterfaces();
+    const urls = [`http://localhost:${PORT}`];
+
+    Object.values(interfaces)
+      .flat()
+      .filter((entry) => entry && entry.family === "IPv4" && !entry.internal)
+      .forEach((entry) => {
+        urls.push(`http://${entry.address}:${PORT}`);
+      });
+
+    console.log("RechnungsApp läuft unter:");
+    urls.forEach((url) => console.log(`- ${url}`));
+  });
+}

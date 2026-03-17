@@ -1,13 +1,14 @@
 # RechnungsApp
 
-Eine schlanke Rechnungs-App fuer:
+Eine mobile Rechnungs-App fuer:
 - Kunden anlegen
 - Artikel und Leistungen verwalten
 - Rechnungen mit fortlaufender Nummer erzeugen
-- Daten auf eine PNG-Vorlage schreiben
-- Rechnung per E-Mail an den Kunden senden und die eigene Adresse in CC setzen
+- Vorschau, Signatur und PDF-Erstellung
+- Versand per SMTP
+- benutzerspezifische Daten mit Login und Abmelden
 
-## Start
+## Lokal starten
 
 ```bash
 npm install
@@ -16,54 +17,76 @@ npm start
 
 Danach im Browser `http://localhost:3000` aufrufen.
 
-## Einfach starten per Doppelklick
-
-Auf Windows kannst du auch einfach diese Datei starten:
+## Windows per Doppelklick
 
 - `Start-KaindlBilling.bat`
 
-Die Datei installiert bei Bedarf automatisch die Abhaengigkeiten, startet den Server und oeffnet den Browser.
-
-## Nutzung am Smartphone
+## Smartphone im lokalen WLAN
 
 - PC und Smartphone muessen im selben WLAN sein.
-- Starte die App über `Start-KaindlBilling.bat`.
-- Im Konsolenfenster werden neben `http://localhost:3000` auch die WLAN-Adressen wie `http://192.168.x.x:3000` angezeigt.
-- Diese Adresse dann am Smartphone im Browser aufrufen.
+- App lokal starten.
+- Im Konsolenfenster eine WLAN-Adresse wie `http://192.168.x.x:3000` oeffnen.
+- Auf dem Handy im Browser aufrufen und optional zum Startbildschirm hinzufuegen.
 
-## Wo kommt die Vorlage hin?
+## Lokale Speicherung
 
-Lege deine echte Rechnungs-Vorlage als PNG in einen dieser Pfade:
+- Benutzerdaten, Kunden, Leistungen, Rechnungen und Einstellungen: `data/store.json`
+- Erzeugte PDFs und PNGs: `data/generated/`
+- Hochgeladene Logos: `data/assets/`
 
+## Netlify-Deployment
+
+Die App ist jetzt fuer Netlify vorbereitet:
+- Express laeuft ueber `netlify/functions/api.js`
+- API-Routen werden ueber `netlify.toml` auf die Function umgeleitet
+- Benutzerdaten, Rechnungen, Logos und PDF-Dateien werden auf Netlify in Blobs gespeichert
+
+### Was du in Netlify machen musst
+
+1. Repository mit Netlify verbinden.
+2. Bei den Build-Einstellungen:
+   - Build command: `npm install`
+   - Publish directory: `public`
+3. Sicherstellen, dass `netlify.toml` verwendet wird.
+4. Unter `Site configuration -> Environment variables` diese Variablen setzen:
+   - `SMTP_HOST` nur wenn du SMTP serverseitig fest vorgeben willst
+   - `SMTP_PORT` optional
+   - `SMTP_SECURE` optional
+   - `SMTP_USER` optional
+   - `SMTP_PASS` optional
+   - `SMTP_FROM` optional
+   - `SMTP_CC` optional
+5. Deploy starten.
+
+Hinweis:
+- Fuer Netlify Blobs ist kein eigener lokaler Dateipfad mehr noetig.
+- In Produktion nutzt Netlify die Blob-Umgebung automatisch in der Function.
+
+## Vorlage und Standard-Assets
+
+Die Rechnungs-Vorlage kann weiterhin lokal aus diesen Dateien gelesen werden:
 - `public/assets/invoice-template.png`
 - `public/assets/image.png`
 
-Solange dort noch keine Datei liegt, zeigt die App ein eingebautes Fallback-Layout an.
+Standard-Logos im Repository:
+- `public/assets/KaindlLogo.png`
+- `public/assets/KaindlBanner.png`
 
-Für Logos werden jetzt diese Dateien bevorzugt:
-- `public/assets/KaindlLogo.png` für App-Symbol und Favicon
-- `public/assets/KaindlBanner.png` für die Rechnungs-Vorschau oben links
+Wenn du in der App neue Logos hochlaedst, werden diese online in Netlify Blobs gespeichert.
 
 ## Mailversand
 
 In der Oberflaeche unter **Einstellungen** eintragen:
-
 - SMTP Host
 - SMTP Port
 - SMTP User
 - SMTP Passwort
-- Versand von
-- CC an eigene E-Mail
+- CC an eigene E-Mail / weitere Empfaenger
 
-Wenn SMTP noch nicht vollständig gesetzt ist, wird die Rechnung trotzdem erstellt und als PDF gespeichert, aber nicht verschickt.
-
-## Speicherung
-
-- Kunden, Artikel, Einstellungen und Rechnungen: `data/store.json`
-- Erzeugte PDFs und PNGs: `generated/`
+Der Versand erfolgt an die Kundenadresse und zusaetzlich an die eingetragene CC-Liste.
 
 ## Hinweise
 
 - Die Rechnungsnummer verwendet das Format `JAHR-00001`.
-- Der Zähler ist in den Einstellungen editierbar.
-- Die aktuelle Umsetzung verschickt eine PDF, die aus der gerenderten Rechnungsansicht erzeugt wird.
+- Pro Benutzer werden Kunden, Leistungen, Rechnungen und Einstellungen getrennt gespeichert.
+- PDFs werden aus der gerenderten Vorschau erzeugt.

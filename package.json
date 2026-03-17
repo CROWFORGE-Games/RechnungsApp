@@ -1,6 +1,6 @@
 {
   "name": "kaindl-billing",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,8 +8,10 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@netlify/blobs": "^10.7.2",
     "express": "^4.21.2",
     "nodemailer": "^6.10.1",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "serverless-http": "^4.0.0"
   }
 }

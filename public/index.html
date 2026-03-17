@@ -216,7 +216,7 @@
           Notizen
           <textarea name="notes" rows="3"></textarea>
         </label>
-        <div class="actions span-2">
+        <div class="actions span-2 panel-form-actions">
           <button class="primary" type="submit">Kunde speichern</button>
           <button class="ghost" type="button" id="resetCustomerForm">Zurücksetzen</button>
         </div>
@@ -277,7 +277,7 @@
           Beschreibung
           <textarea name="description" rows="3"></textarea>
         </label>
-        <div class="actions span-2">
+        <div class="actions span-2 panel-form-actions">
           <button class="primary" type="submit">Leistung speichern</button>
           <button class="ghost" type="button" id="resetArticleForm">Zurücksetzen</button>
         </div>
@@ -448,6 +448,16 @@
         <fieldset class="settings-section span-2">
           <legend>E-Mail und SMTP</legend>
           <div class="settings-section__grid">
+            <label class="span-2">
+              CC an eigene E-Mail / weitere Empf?nger
+              <div class="cc-list" id="ccEmailList"></div>
+              <button class="ghost cc-add-button" id="addCcEmailLegacy" type="button" hidden>+ Empf?nger</button>
+            </label>
+            <label class="checkbox span-2">
+              <input name="smtpEnabled" id="smtpEnabled" type="checkbox" />
+              SMTP Direktversand aktivieren
+            </label>
+            <div class="smtp-settings-group span-2" id="smtpSettingsGroup" hidden>
             <label>
               SMTP Host
               <input name="smtpHost" type="text" />
@@ -493,10 +503,11 @@
               E-Mail Text
               <textarea name="emailBody" rows="4"></textarea>
             </label>
+            </div>
           </div>
         </fieldset>
 
-        <div class="actions span-2">
+        <div class="actions span-2 panel-form-actions">
           <button class="primary" type="submit">Einstellungen speichern</button>
         </div>
       </form>

@@ -1,4 +1,4 @@
-# RechnungsApp
+﻿# RechnungsApp
 
 Eine mobile Rechnungs-App fuer:
 - Kunden anlegen
@@ -81,7 +81,7 @@ In der Oberflaeche unter **Einstellungen** eintragen:
 - SMTP Port
 - SMTP User
 - SMTP Passwort
-- CC an eigene E-Mail / weitere Empfaenger
+- CC an eigene E-Mail / weitere Empf?nger
 
 Der Versand erfolgt an die Kundenadresse und zusaetzlich an die eingetragene CC-Liste.
 
@@ -90,3 +90,4 @@ Der Versand erfolgt an die Kundenadresse und zusaetzlich an die eingetragene CC-
 - Die Rechnungsnummer verwendet das Format `JAHR-00001`.
 - Pro Benutzer werden Kunden, Leistungen, Rechnungen und Einstellungen getrennt gespeichert.
 - PDFs werden aus der gerenderten Vorschau erzeugt.
+

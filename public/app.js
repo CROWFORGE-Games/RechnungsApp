@@ -74,7 +74,9 @@ const smtpPassInput = document.getElementById("smtpPass");
 const toggleSmtpPassButton = document.getElementById("toggleSmtpPass");
 const openSmtpInfoButton = document.getElementById("openSmtpInfo");
 const ccEmailList = document.getElementById("ccEmailList");
-const addCcEmailButton = document.getElementById("addCcEmail");
+const addCcEmailButton = document.getElementById("addCcEmailLegacy") || document.getElementById("addCcEmail");
+const smtpEnabledInput = document.getElementById("smtpEnabled");
+const smtpSettingsGroup = document.getElementById("smtpSettingsGroup");
 const invoiceLogoFileInput = document.getElementById("invoiceLogoFile");
 const appLogoFileInput = document.getElementById("appLogoFile");
 const appFavicon = document.getElementById("appFavicon");
@@ -155,6 +157,7 @@ const settingsFields = {
   counterValue: settingsForm.elements.namedItem("counterValue"),
   counterYear: settingsForm.elements.namedItem("counterYear"),
   smtpHost: settingsForm.elements.namedItem("smtpHost"),
+  smtpEnabled: settingsForm.elements.namedItem("smtpEnabled"),
   smtpPort: settingsForm.elements.namedItem("smtpPort"),
   smtpUser: settingsForm.elements.namedItem("smtpUser"),
   smtpPass: settingsForm.elements.namedItem("smtpPass"),
@@ -540,7 +543,7 @@ function setAuthMode(mode = "login") {
   authModeKicker.textContent = "Anmeldung";
   authTitle.textContent = "Anmelden";
   authText.textContent =
-    "Mit einem vorhandenen Benutzer anmelden. Verfuegbar sind admin und kaindl_daniel, jeweils mit dem Kennwort admin."; /*
+    "Mit einem vorhandenen Benutzer anmelden. Verf?gbar sind admin und kaindl_daniel, jeweils mit dem Kennwort admin."; /*
     : "Mit deinem Benutzer anmelden. Nach dem Login werden deine eigenen Daten auf jedem Gerät wieder geladen.";
   */ authSubmit.textContent = "Anmelden";
   return;
@@ -697,6 +700,7 @@ function populateSettingsForm() {
   settingsFields.invoiceTitle.value = invoice.title || "Rechnung";
   settingsFields.counterValue.value = invoice.counterValue ?? 0;
   settingsFields.counterYear.value = invoice.counterYear ?? new Date().getFullYear();
+  settingsFields.smtpEnabled.checked = Boolean(smtp.enabled);
   settingsFields.smtpHost.value = smtp.host || "";
   settingsFields.smtpPort.value = smtp.port || 587;
   settingsFields.smtpUser.value = smtp.user || "";
@@ -708,6 +712,7 @@ function populateSettingsForm() {
   lastBusinessEmailValue = business.email || "";
   updateSettingsAuthPasswordToggleLabel();
   updateSmtpPassToggleLabel();
+  updateSmtpVisibility();
 }
 
 function readSettingsForm() {
@@ -735,6 +740,7 @@ function readSettingsForm() {
       password: settingsFields.authPassword.value
     },
     smtp: {
+      enabled: settingsFields.smtpEnabled.checked,
       host: settingsFields.smtpHost.value.trim(),
       port: toNumber(settingsFields.smtpPort.value, 587),
       user: settingsFields.smtpUser.value.trim(),
@@ -823,6 +829,62 @@ function syncBusinessEmailDefaults(nextEmail) {
   }
 
   lastBusinessEmailValue = trimmedEmail;
+}
+
+function updateSmtpVisibility() {
+  if (!smtpSettingsGroup || !settingsFields.smtpEnabled) {
+    return;
+  }
+
+  smtpSettingsGroup.hidden = !settingsFields.smtpEnabled.checked;
+}
+
+function normalizeEmailSettingsLayout() {
+  const ccFields = [...document.querySelectorAll(".settings-section__grid .cc-list")];
+  const primaryCcField = ccFields[0]?.closest("label");
+  const duplicateCcFields = ccFields.slice(1);
+  const emailSubjectField = document.querySelector('[name="emailSubject"]')?.closest("label");
+  const emailBodyField = document.querySelector('[name="emailBody"]')?.closest("label");
+
+  if (primaryCcField) {
+    primaryCcField.hidden = false;
+    primaryCcField.classList.add("span-2");
+
+    const primaryAddButton = primaryCcField.querySelector(".cc-add-button");
+    if (primaryAddButton) {
+      primaryAddButton.hidden = false;
+      primaryAddButton.id = "addCcEmail";
+    }
+  }
+
+  duplicateCcFields.forEach((entry) => {
+    const field = entry.closest("label");
+    entry.id = "ccEmailListHidden";
+    const duplicateAddButton = field?.querySelector(".cc-add-button");
+    if (duplicateAddButton) {
+      duplicateAddButton.id = "addCcEmailHidden";
+    }
+    if (field) {
+      field.hidden = true;
+    }
+  });
+
+  if (smtpSettingsGroup && emailSubjectField && emailSubjectField.parentElement === smtpSettingsGroup) {
+    smtpSettingsGroup.insertAdjacentElement("afterend", emailBodyField);
+    smtpSettingsGroup.insertAdjacentElement("afterend", emailSubjectField);
+  }
+
+  emailSubjectField?.classList.add("span-2");
+  emailBodyField?.classList.add("span-2");
+}
+
+function scrollPanelFormToTop(formElement) {
+  const panel = formElement?.closest(".side-panel");
+  if (!panel) {
+    return;
+  }
+
+  panel.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function updateSmtpPassToggleLabel() {
@@ -942,6 +1004,7 @@ function fillCustomerForm(customer = null) {
   customerFields.email.value = entry.email || "";
   customerFields.uid.value = entry.uid || "";
   customerFields.notes.value = entry.notes || "";
+  scrollPanelFormToTop(customerForm);
 }
 
 function readCustomerForm() {
@@ -985,6 +1048,7 @@ function fillArticleForm(article = null) {
   articleFields.unitPrice.value = entry.unitPrice ?? "";
   articleFields.taxRate.value = entry.taxRate ?? 20;
   articleFields.description.value = entry.description || "";
+  scrollPanelFormToTop(articleForm);
 }
 
 function readArticleForm() {
@@ -1168,9 +1232,13 @@ function renderInvoiceItems() {
             </div>
           </td>
           <td data-label="Menge">
-            <input name="quantity" type="number" min="0" step="0.5" value="${escapeHtml(
-              item.quantity
-            )}" />
+            <div class="quantity-stepper">
+              <button class="ghost quantity-stepper__button" type="button" data-action="decrease-quantity">-</button>
+              <input name="quantity" type="number" min="0" step="0.5" value="${escapeHtml(
+                item.quantity
+              )}" />
+              <button class="ghost quantity-stepper__button" type="button" data-action="increase-quantity">+</button>
+            </div>
           </td>
           <td data-label="Einheit">
             <input name="unit" type="text" value="${escapeHtml(item.unit || "Stunden")}" />
@@ -1824,6 +1892,28 @@ function handleInvoiceTableChange(event) {
 }
 
 function handleInvoiceTableClick(event) {
+  const quantityButton = event.target.closest('[data-action="decrease-quantity"], [data-action="increase-quantity"]');
+  if (quantityButton) {
+    const row = quantityButton.closest("tr[data-index]");
+    if (!row) {
+      return;
+    }
+
+    const quantityInput = row.querySelector('[name="quantity"]');
+    const currentValue = toNumber(quantityInput?.value, 0);
+    const nextValue =
+      quantityButton.dataset.action === "increase-quantity"
+        ? currentValue + 0.5
+        : Math.max(0, currentValue - 0.5);
+
+    quantityInput.value = String(roundCurrency(nextValue));
+    updateInvoiceRowState(row);
+    updateInvoiceRowTotal(row);
+    updateInvoiceTotalsDisplay();
+    schedulePreviewRender();
+    return;
+  }
+
   const button = event.target.closest('[data-action="remove-item"]');
   if (!button) {
     return;
@@ -1898,6 +1988,10 @@ function buildMailtoLink(invoice) {
   return `mailto:${encodeURIComponent(customerEmail)}?${params.toString()}`;
 }
 
+function isSmtpEnabled() {
+  return Boolean(state.settings?.smtp?.enabled);
+}
+
 async function prepareInvoice() {
   if (!state.invoiceDraft.customerId) {
     showInvoiceDraftWarning("Bitte zuerst einen Kunden auswählen.");
@@ -1961,7 +2055,8 @@ async function sendInvoice() {
           ...item,
           unit: String(item.unit || "Stunden").trim()
         })),
-        imageDataUrl: invoiceCanvas.toDataURL("image/png")
+        imageDataUrl: invoiceCanvas.toDataURL("image/png"),
+        deliveryMethod: isSmtpEnabled() ? "smtp" : "external-app"
       })
     });
 
@@ -1975,6 +2070,12 @@ async function sendInvoice() {
       response.email?.message || "Rechnung erstellt. Mail-App wurde geöffnet.",
       response.email?.status === "sent" ? "success" : "error"
     );
+    if (response.email?.status && response.email.status !== "sent") {
+      window.alert(response.email.message || "Mailversand fehlgeschlagen.");
+    }
+    if (response.email?.status === "external-app" && response.invoice) {
+      window.location.href = buildMailtoLink(response.invoice);
+    }
 
     const preservedCustomerId = state.invoiceDraft.customerId;
     state.invoiceDraft = {
@@ -1992,6 +2093,7 @@ async function sendInvoice() {
     schedulePreviewRender();
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht gesendet werden.", "error");
+    window.alert(error.message || "Rechnung konnte nicht gesendet werden.");
   } finally {
     sendInvoiceButton.disabled = false;
     sendInvoiceButton.textContent = "Senden";
@@ -2112,7 +2214,7 @@ async function handleLogout() {
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch {
-    // Token kann bereits ungÃ¼ltig sein.
+    // Token kann bereits ung?ltig sein.
   }
 
   clearAuthToken();
@@ -2241,6 +2343,7 @@ function bindStaticEvents() {
   settingsFields.businessEmail.addEventListener("input", (event) => {
     syncBusinessEmailDefaults(event.target.value);
   });
+  settingsFields.smtpEnabled?.addEventListener("change", updateSmtpVisibility);
   toggleSettingsAuthPasswordButton?.addEventListener("click", () => {
     settingsAuthPasswordInput.type =
       settingsAuthPasswordInput.type === "password" ? "text" : "password";
@@ -2339,7 +2442,9 @@ async function initializeApp() {
   }
   setAuthMode("login");
   settingsFields.authUsername?.closest("fieldset")?.setAttribute("hidden", "");
+  normalizeEmailSettingsLayout();
   updateSettingsAuthPasswordToggleLabel();
+  updateSmtpVisibility();
 
   authUsernameInput.value = state.auth.username || "";
   if (state.auth.authenticated) {

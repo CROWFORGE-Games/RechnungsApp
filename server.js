@@ -55,6 +55,7 @@ const DEFAULT_STORE = {
       footerNote: "Bitte geben Sie bei der Überweisung die Rechnungsnummer an."
     },
     smtp: {
+      enabled: false,
       host: "",
       port: 587,
       secure: false,
@@ -385,6 +386,7 @@ function sanitizeSettings(settings) {
   return {
     business: settings.business,
     smtp: {
+      enabled: Boolean(settings.smtp.enabled),
       host: settings.smtp.host,
       port: Number(settings.smtp.port) || 587,
       secure: Boolean(settings.smtp.secure),
@@ -551,6 +553,7 @@ function compileTemplate(template, tokens) {
 
 function getMailSettings(settings) {
   return {
+    enabled: Boolean(settings.smtp.enabled),
     host: process.env.SMTP_HOST || settings.smtp.host,
     port: Number(process.env.SMTP_PORT || settings.smtp.port || 587),
     secure:
@@ -563,7 +566,13 @@ function getMailSettings(settings) {
 }
 
 function isMailConfigured(mailSettings) {
-  return Boolean(mailSettings.host && mailSettings.port && mailSettings.user && mailSettings.pass);
+  return Boolean(
+    mailSettings.enabled &&
+      mailSettings.host &&
+      mailSettings.port &&
+      mailSettings.user &&
+      mailSettings.pass
+  );
 }
 
 function getLogoFileName(kind) {
@@ -792,6 +801,9 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
     host: mailSettings.host,
     port: mailSettings.port,
     secure: mailSettings.secure,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: mailSettings.user,
       pass: mailSettings.pass

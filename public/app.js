@@ -21,6 +21,10 @@ const state = {
   customers: [],
   articles: [],
   invoices: [],
+  filters: {
+    customers: "",
+    articles: ""
+  },
   openPanelId: null,
   invoiceDraft: {
     customerId: "",
@@ -49,6 +53,8 @@ const invoiceReferenceInput = document.getElementById("invoiceReference");
 const invoiceNotesInput = document.getElementById("invoiceNotes");
 const customersTable = document.getElementById("customersTable");
 const articlesTable = document.getElementById("articlesTable");
+const customersSearchInput = document.getElementById("customersSearch");
+const articlesSearchInput = document.getElementById("articlesSearch");
 const invoiceItemsTable = document.getElementById("invoiceItemsTable");
 const invoiceTotals = document.getElementById("invoiceTotals");
 const invoiceHistory = document.getElementById("invoiceHistory");
@@ -290,6 +296,30 @@ function sortByNumericField(entries, fieldName) {
 
     return String(left[fieldName] || "").localeCompare(String(right[fieldName] || ""), "de");
   });
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .toLocaleLowerCase("de")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ß/g, "ss")
+    .trim();
+}
+
+function matchesSearch(entry, fields, searchTerm) {
+  if (!searchTerm) {
+    return true;
+  }
+
+  const haystack = normalizeSearchText(
+    fields
+      .map((field) => entry[field] || "")
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  return haystack.includes(searchTerm);
 }
 
 function nextSequentialNumber(entries, fieldName, base = 10001) {
@@ -1137,10 +1167,19 @@ function renderCustomerOptions() {
 }
 
 function renderCustomers() {
-  const entries = sortByNumericField(state.customers, "customerNumber");
+  const searchTerm = normalizeSearchText(state.filters.customers);
+  const entries = sortByNumericField(state.customers, "customerNumber").filter((customer) =>
+    matchesSearch(
+      customer,
+      ["customerNumber", "name", "contactPerson", "street", "postalCode", "city", "email", "phone", "uid"],
+      searchTerm
+    )
+  );
   if (!entries.length) {
     customersTable.innerHTML =
-      '<tr><td colspan="5" class="empty-state">Noch keine Kunden angelegt.</td></tr>';
+      `<tr><td colspan="5" class="empty-state">${
+        searchTerm ? "Keine passenden Kunden gefunden." : "Noch keine Kunden angelegt."
+      }</td></tr>`;
     return;
   }
 
@@ -1170,10 +1209,15 @@ function renderCustomers() {
 }
 
 function renderArticles() {
-  const entries = sortByNumericField(state.articles, "number");
+  const searchTerm = normalizeSearchText(state.filters.articles);
+  const entries = sortByNumericField(state.articles, "number").filter((article) =>
+    matchesSearch(article, ["number", "name", "description", "group", "unit"], searchTerm)
+  );
   if (!entries.length) {
     articlesTable.innerHTML =
-      '<tr><td colspan="5" class="empty-state">Noch keine Leistungen angelegt.</td></tr>';
+      `<tr><td colspan="5" class="empty-state">${
+        searchTerm ? "Keine passenden Leistungen gefunden." : "Noch keine Leistungen angelegt."
+      }</td></tr>`;
     return;
   }
 
@@ -2481,6 +2525,14 @@ function bindStaticEvents() {
   customerForm.addEventListener("submit", saveCustomer);
   articleForm.addEventListener("submit", saveArticle);
   articleForm.addEventListener("input", handleArticleFormLiveInput);
+  customersSearchInput?.addEventListener("input", (event) => {
+    state.filters.customers = event.target.value || "";
+    renderCustomers();
+  });
+  articlesSearchInput?.addEventListener("input", (event) => {
+    state.filters.articles = event.target.value || "";
+    renderArticles();
+  });
   customersTable.addEventListener("click", handleCustomerTableClick);
   articlesTable.addEventListener("click", handleArticleTableClick);
   invoiceItemsTable.addEventListener("input", handleInvoiceTableInput);

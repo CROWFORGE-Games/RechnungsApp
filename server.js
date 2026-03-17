@@ -468,7 +468,8 @@ async function readStore() {
   }
 
   const raw = await fs.readFile(DATA_FILE, "utf8");
-  return mergeStore(JSON.parse(raw));
+  const normalizedRaw = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  return mergeStore(JSON.parse(normalizedRaw));
 }
 
 async function writeStore(store) {

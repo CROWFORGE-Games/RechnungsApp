@@ -16,7 +16,9 @@ const PUBLIC_ASSET_DIR = path.join(PUBLIC_DIR, "assets");
 const IS_NETLIFY = process.env.NETLIFY === "true";
 const STORAGE_ROOT = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
-  : path.join(__dirname, "data");
+  : IS_NETLIFY
+    ? path.join(os.tmpdir(), "rechnungsapp")
+    : path.join(__dirname, "data");
 const DATA_FILE = path.join(STORAGE_ROOT, "store.json");
 const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const ASSET_STORAGE_DIR = path.join(STORAGE_ROOT, "assets");
@@ -96,8 +98,13 @@ function getAppBlobStore() {
     return null;
   }
 
-  if (!blobStoreCache) {
-    blobStoreCache = getBlobStore(BLOB_STORE_NAME);
+  try {
+    if (!blobStoreCache) {
+      blobStoreCache = getBlobStore(BLOB_STORE_NAME);
+    }
+  } catch (error) {
+    console.error("Netlify Blobs konnten nicht initialisiert werden.", error);
+    return null;
   }
 
   return blobStoreCache;
@@ -229,18 +236,29 @@ async function readBlobJson(key) {
   if (!store) {
     return null;
   }
-  return store.get(key, { type: "json" });
+  try {
+    return await store.get(key, { type: "json" });
+  } catch (error) {
+    console.error(`Blob-Lesen fehlgeschlagen (${key}).`, error);
+    return null;
+  }
 }
 
 async function writeBlobJson(key, value) {
   const store = getAppBlobStore();
   if (!store) {
-    return;
+    return false;
   }
 
-  await store.set(key, JSON.stringify(value, null, 2), {
-    metadata: { contentType: "application/json; charset=utf-8" }
-  });
+  try {
+    await store.set(key, JSON.stringify(value, null, 2), {
+      metadata: { contentType: "application/json; charset=utf-8" }
+    });
+    return true;
+  } catch (error) {
+    console.error(`Blob-Schreiben fehlgeschlagen (${key}).`, error);
+    return false;
+  }
 }
 
 async function readBlobBinary(key) {
@@ -249,28 +267,43 @@ async function readBlobBinary(key) {
     return null;
   }
 
-  const data = await store.get(key, { type: "arrayBuffer" });
-  return data ? Buffer.from(data) : null;
+  try {
+    const data = await store.get(key, { type: "arrayBuffer" });
+    return data ? Buffer.from(data) : null;
+  } catch (error) {
+    console.error(`Blob-Binärlesen fehlgeschlagen (${key}).`, error);
+    return null;
+  }
 }
 
 async function writeBlobBinary(key, value, contentType) {
   const store = getAppBlobStore();
   if (!store) {
-    return;
+    return false;
   }
 
-  await store.set(key, toArrayBuffer(value), {
-    metadata: { contentType }
-  });
+  try {
+    await store.set(key, toArrayBuffer(value), {
+      metadata: { contentType }
+    });
+    return true;
+  } catch (error) {
+    console.error(`Blob-Binärschreiben fehlgeschlagen (${key}).`, error);
+    return false;
+  }
 }
 
 async function ensureDataFiles() {
   if (IS_NETLIFY) {
     const existing = await readBlobJson(STORE_BLOB_KEY);
-    if (!existing) {
-      await writeBlobJson(STORE_BLOB_KEY, createInitialStore());
+    if (existing) {
+      return;
     }
-    return;
+
+    const storedInBlobs = await writeBlobJson(STORE_BLOB_KEY, createInitialStore());
+    if (storedInBlobs) {
+      return;
+    }
   }
 
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
@@ -288,8 +321,10 @@ async function readStore() {
   await ensureDataFiles();
 
   if (IS_NETLIFY) {
-    const raw = (await readBlobJson(STORE_BLOB_KEY)) || createInitialStore();
-    return mergeStore(raw);
+    const raw = await readBlobJson(STORE_BLOB_KEY);
+    if (raw) {
+      return mergeStore(raw);
+    }
   }
 
   const raw = await fs.readFile(DATA_FILE, "utf8");
@@ -298,10 +333,13 @@ async function readStore() {
 
 async function writeStore(store) {
   if (IS_NETLIFY) {
-    await writeBlobJson(STORE_BLOB_KEY, store);
-    return;
+    const storedInBlobs = await writeBlobJson(STORE_BLOB_KEY, store);
+    if (storedInBlobs) {
+      return;
+    }
   }
 
+  await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8");
 }
 
@@ -496,7 +534,7 @@ function getLogoFileName(kind) {
 
 function getLogoFallbackPath(kind) {
   const fileName = getLogoFileName(kind);
-  return fileName ? path.join(PUBLIC_ASSET_DIR, fileName) : "";
+  return fileName ? path.join(PUBLIC_ASSET_DIR, fileName) : path.join(PUBLIC_ASSET_DIR, "app-maskable.svg");
 }
 
 async function readStoredLogo(kind) {
@@ -506,7 +544,10 @@ async function readStoredLogo(kind) {
   }
 
   if (IS_NETLIFY) {
-    return readBlobBinary(blobKey);
+    const blob = await readBlobBinary(blobKey);
+    if (blob) {
+      return blob;
+    }
   }
 
   const localPath = path.join(ASSET_STORAGE_DIR, getLogoFileName(kind));
@@ -530,8 +571,10 @@ async function saveLogoAsset(kind, imageDataUrl) {
   const imageBuffer = Buffer.from(String(imageDataUrl).split(",")[1] || "", "base64");
 
   if (IS_NETLIFY) {
-    await writeBlobBinary(blobKey, imageBuffer, "image/png");
-    return;
+    const storedInBlobs = await writeBlobBinary(blobKey, imageBuffer, "image/png");
+    if (storedInBlobs) {
+      return;
+    }
   }
 
   await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
@@ -609,13 +652,22 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   const pdfBuffer = Buffer.from(pdfBytes);
 
   if (IS_NETLIFY) {
-    await writeBlobBinary(pngKey, pngBuffer, "image/png");
-    await writeBlobBinary(pdfKey, pdfBytes, "application/pdf");
-  } else {
-    await fs.mkdir(GENERATED_DIR, { recursive: true });
-    await fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer);
-    await fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer);
+    const pngStored = await writeBlobBinary(pngKey, pngBuffer, "image/png");
+    const pdfStored = await writeBlobBinary(pdfKey, pdfBytes, "application/pdf");
+    if (pngStored && pdfStored) {
+      return {
+        pdfName,
+        pdfUrl: `/api/files/generated/${pdfName}`,
+        pngName,
+        pngUrl: `/api/files/generated/${pngName}`,
+        pdfBuffer
+      };
+    }
   }
+
+  await fs.mkdir(GENERATED_DIR, { recursive: true });
+  await fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer);
+  await fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer);
 
   return {
     pdfName,
@@ -665,7 +717,10 @@ function findReferencedFile(user, fileName) {
 
 async function readGeneratedFile(fileName) {
   if (IS_NETLIFY) {
-    return readBlobBinary(`generated/${fileName}`);
+    const blob = await readBlobBinary(`generated/${fileName}`);
+    if (blob) {
+      return blob;
+    }
   }
 
   try {
@@ -788,7 +843,14 @@ app.get("/api/assets/logo/:kind", async (req, res, next) => {
     }
 
     res.setHeader("Cache-Control", "public, max-age=300");
-    res.sendFile(getLogoFallbackPath(kind));
+    const preferredFallback = getLogoFallbackPath(kind);
+    try {
+      await fs.access(preferredFallback);
+      res.sendFile(preferredFallback);
+      return;
+    } catch {
+      res.sendFile(path.join(PUBLIC_ASSET_DIR, "app-maskable.svg"));
+    }
   } catch (error) {
     next(error);
   }

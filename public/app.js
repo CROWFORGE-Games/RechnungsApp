@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.3.2";
+const APP_VERSION = "V0.3.3";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -2028,13 +2028,13 @@ async function handleAuthSubmit(event) {
     await bootstrap();
     return;
   } catch (error) {
-    setStatus(
+    const message =
       error.message ||
-        (state.auth.mode === "register"
-          ? "Benutzer konnte nicht angelegt werden."
-          : "Benutzername oder Kennwort ist nicht korrekt."),
-      "error"
-    );
+      (state.auth.mode === "register"
+        ? "Benutzer konnte nicht angelegt werden."
+        : "Benutzername oder Kennwort ist nicht korrekt.");
+    setStatus(message, "error");
+    window.alert(message);
     return;
   }
 

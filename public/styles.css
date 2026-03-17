@@ -951,38 +951,93 @@ body.panel-open {
 }
 
 @media (max-width: 760px) {
+  :root {
+    --mobile-nav-height: 88px;
+  }
+
+  html,
   body {
-    padding: 12px;
+    min-height: 100dvh;
+  }
+
+  body {
+    padding: 0;
   }
 
   .app-shell {
-    gap: 14px;
-    min-height: auto;
+    display: block;
+    min-height: 100dvh;
   }
 
   .tool-rail,
   .main-card {
-    border-radius: 24px;
-    padding: 16px;
+    border-radius: 0;
     min-height: auto;
   }
 
-  .tool-rail__actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .tool-rail {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    border-radius: 22px 22px 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 248, 243, 0.96)),
+      linear-gradient(180deg, rgba(63, 138, 90, 0.1), transparent);
+    box-shadow: 0 -14px 36px rgba(24, 49, 38, 0.16);
   }
 
-  .tool-rail__brand {
-    width: min(100%, 180px);
+  .tool-rail__top,
+  .tool-rail__brand-wrap,
+  .tool-rail__footer,
+  .app-shell.nav-collapsed .tool-rail__brand-wrap,
+  .app-shell.nav-collapsed .tool-rail__footer {
+    display: none;
+  }
+
+  .tool-rail__actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .rail-button,
+  .app-shell.nav-collapsed .rail-button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    min-height: 68px;
+    padding: 10px 6px;
+    border-radius: 18px;
+    text-align: center;
+  }
+
+  .rail-label,
+  .app-shell.nav-collapsed .rail-label {
+    display: block;
+    font-size: 0.74rem;
+    line-height: 1.1;
   }
 
   .dialog-overlay {
-    padding: 12px;
+    padding: 0;
+    align-items: flex-end;
   }
 
   .dialog-card {
     width: 100%;
-    padding: 18px;
-    border-radius: 24px;
+    min-height: min(86dvh, 860px);
+    margin: 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 26px 26px 0 0;
+    overflow-y: auto;
   }
 
   .invoice-toolbar,
@@ -994,10 +1049,139 @@ body.panel-open {
     align-items: stretch;
   }
 
+  .content-shell {
+    min-height: 100dvh;
+  }
+
+  .main-card {
+    padding: calc(14px + env(safe-area-inset-top)) 14px calc(var(--mobile-nav-height) + 18px + env(safe-area-inset-bottom));
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .section-head {
+    margin-bottom: 14px;
+  }
+
+  .section-head h2 {
+    font-size: 1.55rem;
+  }
+
+  .section-kicker {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+  }
+
+  .invoice-meta-grid,
+  .form-grid,
+  .compact-grid,
+  .settings-section__grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .invoice-meta-grid .span-2,
+  .form-grid .span-2,
+  .settings-section__grid .span-2 {
+    grid-column: auto;
+  }
+
+  label,
+  .static-field {
+    gap: 7px;
+    font-size: 0.92rem;
+  }
+
+  input,
+  select,
+  textarea,
+  .static-field__value {
+    min-height: 54px;
+    padding: 15px 16px;
+    border-radius: 18px;
+    font-size: 1rem;
+  }
+
+  textarea {
+    min-height: 116px;
+  }
+
+  .password-field,
+  .cc-row {
+    grid-template-columns: minmax(0, 1fr) 54px;
+    gap: 8px;
+  }
+
+  .password-toggle,
+  .icon-button {
+    min-width: 54px;
+    min-height: 54px;
+    width: 54px;
+    height: 54px;
+  }
+
+  .settings-section {
+    padding: 16px 14px;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
   .table-wrap {
     overflow: visible;
     border: 0;
     background: transparent;
+  }
+
+  .invoice-items-wrap {
+    padding: 0;
+  }
+
+  .invoice-items-actions,
+  .panel-table__actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 0 0;
+  }
+
+  .invoice-items-actions .secondary,
+  .invoice-items-actions .totals-chip {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .preview-layout {
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .preview-card,
+  .side-card {
+    padding: 14px;
+    border-radius: 24px;
+  }
+
+  .preview-head .primary,
+  .dialog-actions .primary,
+  .dialog-actions .secondary,
+  .dialog-actions .ghost,
+  .actions .primary,
+  .actions .secondary,
+  .actions .ghost {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .history-item {
+    padding: 12px 14px;
+  }
+
+  .table-wrap {
+    margin-top: 0;
   }
 
   table {
@@ -1026,16 +1210,16 @@ body.panel-open {
 
   td {
     display: grid;
-    grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: 1fr;
+    gap: 6px;
     align-items: start;
-    padding: 10px 14px;
+    padding: 12px 14px;
   }
 
   td::before {
     content: attr(data-label);
-    font-size: 0.76rem;
-    letter-spacing: 0.08em;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
   }
@@ -1049,31 +1233,72 @@ body.panel-open {
 
   .readonly-chip {
     justify-content: flex-start;
+    min-height: 52px;
   }
 
   .row-actions {
-    flex-direction: column;
+    flex-direction: row;
     width: 100%;
   }
 
   .side-panel {
-    inset: auto 0 0 0;
-    top: auto;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     width: 100%;
-    max-height: 88vh;
-    border-radius: 24px 24px 0 0;
+    max-height: 100dvh;
+    padding: calc(14px + env(safe-area-inset-top)) 14px calc(var(--mobile-nav-height) + 20px + env(safe-area-inset-bottom));
+    border-radius: 0;
     transform: translateY(100%);
+    background: rgba(255, 255, 255, 0.98);
   }
 
   .side-panel.is-open {
     transform: translateY(0);
   }
 
+  .side-panel__head {
+    position: sticky;
+    top: calc(-14px - env(safe-area-inset-top));
+    z-index: 2;
+    margin: 0 -14px 16px;
+    padding: calc(14px + env(safe-area-inset-top)) 14px 12px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92));
+    backdrop-filter: blur(10px);
+  }
+
+  .auth-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .auth-card {
+    width: 100%;
+    min-height: 100dvh;
+    padding: calc(22px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .auth-card__logo {
+    width: min(100%, 210px);
+    margin-bottom: 18px;
+  }
+
   .signature-card__head,
   .dialog-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .dialog-preview {
+    margin-top: 14px;
+    border-radius: 18px;
+    overflow: hidden;
+  }
+
+  #invoiceCanvas,
+  #sendPreviewCanvas {
+    border-radius: 18px;
   }
 }

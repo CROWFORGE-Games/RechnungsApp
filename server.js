@@ -174,6 +174,8 @@ app.use(express.static(PUBLIC_DIR));
 
 let blobStoreCache = null;
 let blobStoreFactoryPromise = null;
+const pendingGoogleSheetSyncPayloads = new Map();
+const activeGoogleSheetSyncUsers = new Set();
 
 async function getAppBlobStore() {
   if (!IS_NETLIFY) {
@@ -631,6 +633,44 @@ async function syncUserToGoogleSheets(user) {
   } catch (error) {
     console.error(`Google-Sheets-Sync fehlgeschlagen (${user.username}).`, error);
   }
+}
+
+function queueGoogleSheetsSync(user) {
+  if (!isGoogleSheetsSyncConfigured() || !user?.username) {
+    return;
+  }
+
+  const username = String(user.username).trim();
+  pendingGoogleSheetSyncPayloads.set(username, buildSheetSyncPayload(user));
+
+  if (activeGoogleSheetSyncUsers.has(username)) {
+    return;
+  }
+
+  activeGoogleSheetSyncUsers.add(username);
+
+  setTimeout(async () => {
+    try {
+      while (pendingGoogleSheetSyncPayloads.has(username)) {
+        const payload = pendingGoogleSheetSyncPayloads.get(username);
+        pendingGoogleSheetSyncPayloads.delete(username);
+
+        try {
+          await requestGoogleSheetsSync("upsertUserData", {
+            username,
+            data: payload
+          });
+        } catch (error) {
+          console.error(`Google-Sheets-Hintergrundsync fehlgeschlagen (${username}).`, error);
+        }
+      }
+    } finally {
+      activeGoogleSheetSyncUsers.delete(username);
+      if (pendingGoogleSheetSyncPayloads.has(username)) {
+        queueGoogleSheetsSync(user);
+      }
+    }
+  }, 0);
 }
 
 function sanitizeItem(input = {}) {
@@ -1247,7 +1287,7 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     currentUser.updatedAt = new Date().toISOString();
 
     await writeStore(req.store);
-    await syncUserToGoogleSheets(currentUser);
+    queueGoogleSheetsSync(currentUser);
     res.json({ settings: getUserSettingsForClient(currentUser) });
   } catch (error) {
     next(error);
@@ -1268,7 +1308,7 @@ app.post("/api/customers", requireAuth, async (req, res, next) => {
     req.user.customers.push(customer);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    queueGoogleSheetsSync(req.user);
     res.status(201).json({ customer });
   } catch (error) {
     next(error);
@@ -1290,7 +1330,7 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
     });
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    queueGoogleSheetsSync(req.user);
     res.json({ customer: req.user.customers[index] });
   } catch (error) {
     next(error);
@@ -1302,7 +1342,7 @@ app.delete("/api/customers/:id", requireAuth, async (req, res, next) => {
     req.user.customers = req.user.customers.filter((entry) => entry.id !== req.params.id);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    queueGoogleSheetsSync(req.user);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -1323,7 +1363,7 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
     req.user.articles.push(article);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    queueGoogleSheetsSync(req.user);
     res.status(201).json({ article });
   } catch (error) {
     next(error);
@@ -1345,7 +1385,7 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
     });
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    queueGoogleSheetsSync(req.user);
     res.json({ article: req.user.articles[index] });
   } catch (error) {
     next(error);
@@ -1357,7 +1397,7 @@ app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
     req.user.articles = req.user.articles.filter((entry) => entry.id !== req.params.id);
     req.user.updatedAt = new Date().toISOString();
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    queueGoogleSheetsSync(req.user);
     res.status(204).end();
   } catch (error) {
     next(error);

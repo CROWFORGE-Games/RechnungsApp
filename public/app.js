@@ -1308,7 +1308,7 @@ function renderInvoiceItems() {
               </div>
               <div class="invoice-field-stack">
                 <span class="invoice-field-caption">MwSt. %</span>
-                <input name="taxRate" type="number" min="0" step="0.01" value="${escapeHtml(
+                <input name="taxRate" type="number" min="0" step="0.1" value="${escapeHtml(
                   item.taxRate
                 )}" />
               </div>

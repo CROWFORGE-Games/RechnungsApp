@@ -25,9 +25,6 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
 const GOOGLE_SHEETS_WEBAPP_URL = String(process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
 const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECRET || "").trim();
-const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
-const RESEND_FROM_EMAIL = String(process.env.RESEND_FROM_EMAIL || "").trim();
-const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
 const BLOB_STORE_NAME = "rechnungsapp";
 const STORE_BLOB_KEY = "store.json";
 const LOGO_KEYS = {
@@ -804,15 +801,6 @@ function getMailSettings(settings) {
   };
 }
 
-function getResendSettings(settings) {
-  return {
-    enabled: Boolean(RESEND_API_KEY && (RESEND_FROM_EMAIL || settings.business.email)),
-    apiKey: RESEND_API_KEY,
-    fromEmail: RESEND_FROM_EMAIL || settings.business.email,
-    ccEmail: RESEND_CC_EMAIL || settings.smtp.ccEmail || settings.business.email
-  };
-}
-
 function isMailConfigured(mailSettings) {
   return Boolean(
     mailSettings.enabled &&
@@ -821,10 +809,6 @@ function isMailConfigured(mailSettings) {
       mailSettings.user &&
       mailSettings.pass
   );
-}
-
-function isResendConfigured(resendSettings) {
-  return Boolean(resendSettings.enabled && resendSettings.apiKey && resendSettings.fromEmail);
 }
 
 function getLogoFileName(kind) {
@@ -1041,65 +1025,11 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
     };
   }
 
-  const resendSettings = getResendSettings(user.settings);
-  if (isResendConfigured(resendSettings)) {
-    const tokens = {
-      invoiceNumber: invoice.invoiceNumber,
-      customerName: invoice.customer.name,
-      companyName: user.settings.business.companyName
-    };
-
-    const payload = {
-      from: `"${user.settings.business.companyName || "RechnungsApp"}" <${resendSettings.fromEmail}>`,
-      to: [invoice.customer.email],
-      subject: compileTemplate(user.settings.email.subjectTemplate, tokens),
-      text: compileTemplate(user.settings.email.bodyTemplate, tokens)
-    };
-
-    const ccEntries = String(resendSettings.ccEmail || "")
-      .split(",")
-      .map((entry) => String(entry || "").trim())
-      .filter(Boolean);
-    if (ccEntries.length) {
-      payload.cc = ccEntries;
-    }
-
-    if (fileInfo.pdfBuffer) {
-      payload.attachments = [
-        {
-          filename: `${invoice.invoiceNumber}.pdf`,
-          content: fileInfo.pdfBuffer.toString("base64")
-        }
-      ];
-    }
-
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendSettings.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const responseText = await response.text().catch(() => "");
-      throw new Error(
-        `Resend-Versand fehlgeschlagen (${response.status})${responseText ? `: ${responseText}` : "."}`
-      );
-    }
-
-    return {
-      status: "sent",
-      message: `Rechnung an ${invoice.customer.email} gesendet.`
-    };
-  }
-
   const mailSettings = getMailSettings(user.settings);
   if (!isMailConfigured(mailSettings)) {
     return {
       status: "skipped",
-      message: "Es ist weder Resend noch SMTP vollständig konfiguriert."
+      message: "SMTP ist noch nicht vollständig konfiguriert."
     };
   }
 
@@ -1144,10 +1074,6 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
     status: "sent",
     message: `Rechnung an ${invoice.customer.email} gesendet.`
   };
-}
-
-function hasServerSideEmailDelivery(settings) {
-  return isResendConfigured(getResendSettings(settings)) || isMailConfigured(getMailSettings(settings));
 }
 
 function buildInvoiceRecord(user, payload) {
@@ -1486,7 +1412,7 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
 
     const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
     let emailResult;
-    if (deliveryMethod === "external-app" && !hasServerSideEmailDelivery(req.user.settings)) {
+    if (deliveryMethod === "external-app") {
       emailResult = {
         status: "external-app",
         message: "Rechnung erstellt. Die Mail-App kann jetzt geöffnet werden."

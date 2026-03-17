@@ -56,7 +56,7 @@ const DEFAULT_STORE = {
     },
     smtp: {
       enabled: false,
-      host: "",
+      host: "smtp.gmail.com",
       port: 587,
       secure: false,
       user: "",

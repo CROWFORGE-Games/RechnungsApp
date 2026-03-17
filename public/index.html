@@ -49,7 +49,10 @@
 
         <div class="tool-rail__footer">
           <div class="hero-status" id="statusBanner">Lade Daten...</div>
-          <button class="ghost logout-button" id="logoutButton" type="button" hidden>Abmelden</button>
+          <button class="rail-button logout-button" id="logoutButton" type="button" hidden>
+            <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
+            <span class="rail-label">Abmelden</span>
+          </button>
           <div class="app-version" id="appVersion">V0.3.6</div>
         </div>
       </aside>
@@ -344,20 +347,6 @@
         </fieldset>
 
         <fieldset class="settings-section span-2">
-          <legend>Logos</legend>
-          <div class="settings-section__grid">
-            <label>
-              Rechnungslogo
-              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
-            </label>
-            <label>
-              App-Logo
-              <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset class="settings-section span-2">
           <legend>Firma</legend>
           <div class="settings-section__grid">
             <label>
@@ -449,9 +438,9 @@
           <legend>E-Mail und SMTP</legend>
           <div class="settings-section__grid">
             <label class="span-2">
-              CC an eigene E-Mail / weitere Empf?nger
+              CC an eigene E-Mail / weitere Empfänger
               <div class="cc-list" id="ccEmailList"></div>
-              <button class="ghost cc-add-button" id="addCcEmailLegacy" type="button" hidden>+ Empf?nger</button>
+              <button class="ghost cc-add-button" id="addCcEmailLegacy" type="button" hidden>+ Empfänger</button>
             </label>
             <label class="checkbox span-2">
               <input name="smtpEnabled" id="smtpEnabled" type="checkbox" />
@@ -504,6 +493,20 @@
               <textarea name="emailBody" rows="4"></textarea>
             </label>
             </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-section span-2">
+          <legend>Logos</legend>
+          <div class="settings-section__grid">
+            <label>
+              Rechnungslogo
+              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
+            </label>
+            <label>
+              App-Logo
+              <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
+            </label>
           </div>
         </fieldset>
 

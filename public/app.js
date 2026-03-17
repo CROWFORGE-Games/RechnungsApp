@@ -701,7 +701,7 @@ function populateSettingsForm() {
   settingsFields.counterValue.value = invoice.counterValue ?? 0;
   settingsFields.counterYear.value = invoice.counterYear ?? new Date().getFullYear();
   settingsFields.smtpEnabled.checked = Boolean(smtp.enabled);
-  settingsFields.smtpHost.value = smtp.host || "";
+  settingsFields.smtpHost.value = smtp.host || "smtp.gmail.com";
   settingsFields.smtpPort.value = smtp.port || 587;
   settingsFields.smtpUser.value = smtp.user || "";
   settingsFields.smtpPass.value = smtp.pass || "";
@@ -1599,21 +1599,20 @@ async function renderCanvas() {
   };
 
   const hasDiscountTotal = totals.discountTotal > 0;
+  const taxLineY = totalsStartY + (hasDiscountTotal ? 48 : 24);
+  const totalLineY = totalsStartY + (hasDiscountTotal ? 84 : 60);
+  const totalDividerY = totalsStartY + (hasDiscountTotal ? 68 : 44);
   drawAmountLine("Netto", formatAmount(totals.subtotal), totalsStartY);
   if (hasDiscountTotal) {
     drawAmountLine("Rabatt-Abzug", `- ${formatAmount(totals.discountTotal)}`, totalsStartY + 24);
   }
-  drawAmountLine(
-    getPreviewTaxLabel(),
-    formatAmount(totals.taxTotal),
-    totalsStartY + (hasDiscountTotal ? 48 : 24)
-  );
-  drawAmountLine("Gesamtbetrag €", formatAmount(totals.grossTotal), totalsStartY + 72, true);
+  drawAmountLine(getPreviewTaxLabel(), formatAmount(totals.taxTotal), taxLineY);
+  drawAmountLine("Gesamtbetrag €", formatAmount(totals.grossTotal), totalLineY, true);
 
   canvasContext.beginPath();
   canvasContext.lineWidth = 1.8;
-  canvasContext.moveTo(492, totalsStartY + (hasDiscountTotal ? 98 : 74));
-  canvasContext.lineTo(738, totalsStartY + (hasDiscountTotal ? 98 : 74));
+  canvasContext.moveTo(492, totalDividerY);
+  canvasContext.lineTo(738, totalDividerY);
   canvasContext.stroke();
   canvasContext.textAlign = "left";
 
@@ -1958,13 +1957,15 @@ function compileClientTemplate(template, tokens) {
   return String(template || "").replace(/\{\{(\w+)\}\}/g, (_, key) => tokens[key] ?? "");
 }
 
-function buildMailtoLink(invoice) {
-  const customerEmail = invoice.customer?.email || selectedCustomer()?.email || "";
-  const ownEmail =
-    state.settings?.business?.email ||
-    state.settings?.smtp?.ccEmail ||
-    state.settings?.smtp?.fromEmail ||
-    "";
+function buildClientEmailDraft(invoice) {
+  const customerEmail = String(invoice.customer?.email || selectedCustomer()?.email || "").trim();
+  const ccEmail = String(
+    state.settings?.smtp?.ccEmail || state.settings?.business?.email || state.settings?.smtp?.fromEmail || ""
+  )
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .join(", ");
   const invoiceUrl = invoice.files?.pdfUrl
     ? new URL(invoice.files.pdfUrl, window.location.origin).toString()
     : "";
@@ -1979,13 +1980,65 @@ function buildMailtoLink(invoice) {
     compileClientTemplate(state.settings?.email?.bodyTemplate, tokens).trim(),
     invoiceUrl ? `PDF-Link: ${invoiceUrl}` : ""
   ].filter(Boolean);
-  const params = new URLSearchParams();
-  if (ownEmail) {
-    params.set("cc", ownEmail);
+  return {
+    customerEmail,
+    ccEmail,
+    subject: subject || `Rechnung ${invoice.invoiceNumber}`,
+    body: bodyParts.join("\n\n"),
+    invoiceUrl
+  };
+}
+
+function buildMailtoLink(invoice) {
+  const draft = buildClientEmailDraft(invoice);
+  const params = [];
+  if (draft.ccEmail) {
+    params.push(`cc=${encodeURIComponent(draft.ccEmail)}`);
   }
-  params.set("subject", subject || `Rechnung ${invoice.invoiceNumber}`);
-  params.set("body", bodyParts.join("\n\n"));
-  return `mailto:${encodeURIComponent(customerEmail)}?${params.toString()}`;
+  params.push(`subject=${encodeURIComponent(draft.subject)}`);
+  params.push(`body=${encodeURIComponent(draft.body)}`);
+  return `mailto:${encodeURIComponent(draft.customerEmail)}?${params.join("&")}`;
+}
+
+async function openExternalMailApp(invoice) {
+  const draft = buildClientEmailDraft(invoice);
+  const pdfUrl = buildAuthenticatedFileUrl(invoice.files?.pdfUrl);
+  const shareSupported =
+    typeof navigator !== "undefined" &&
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function";
+
+  if (shareSupported && pdfUrl) {
+    try {
+      const response = await fetch(pdfUrl);
+      if (response.ok) {
+        const blob = await response.blob();
+        const file = new File([blob], `${invoice.invoiceNumber}.pdf`, {
+          type: blob.type || "application/pdf"
+        });
+        if (navigator.canShare({ files: [file] })) {
+          const shareText = [
+            draft.body,
+            draft.customerEmail ? `An: ${draft.customerEmail}` : "",
+            draft.ccEmail ? `CC: ${draft.ccEmail}` : ""
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+          await navigator.share({
+            title: draft.subject,
+            text: shareText,
+            files: [file]
+          });
+          return "share";
+        }
+      }
+    } catch {
+      // Fallback auf mailto, wenn Teilen oder PDF-Fetch nicht unterstützt wird.
+    }
+  }
+
+  window.location.href = buildMailtoLink(invoice);
+  return "mailto";
 }
 
 function isSmtpEnabled() {
@@ -2074,7 +2127,7 @@ async function sendInvoice() {
       window.alert(response.email.message || "Mailversand fehlgeschlagen.");
     }
     if (response.email?.status === "external-app" && response.invoice) {
-      window.location.href = buildMailtoLink(response.invoice);
+      await openExternalMailApp(response.invoice);
     }
 
     const preservedCustomerId = state.invoiceDraft.customerId;
@@ -2214,7 +2267,7 @@ async function handleLogout() {
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch {
-    // Token kann bereits ung?ltig sein.
+    // Token kann bereits ungültig sein.
   }
 
   clearAuthToken();

@@ -1,4 +1,4 @@
-﻿# RechnungsApp
+# RechnungsApp
 
 Eine mobile Rechnungs-App fuer:
 - Kunden anlegen
@@ -81,7 +81,7 @@ In der Oberflaeche unter **Einstellungen** eintragen:
 - SMTP Port
 - SMTP User
 - SMTP Passwort
-- CC an eigene E-Mail / weitere Empf?nger
+- CC an eigene E-Mail / weitere Empfänger
 
 Der Versand erfolgt an die Kundenadresse und zusaetzlich an die eingetragene CC-Liste.
 

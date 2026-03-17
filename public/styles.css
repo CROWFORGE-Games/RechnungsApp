@@ -1051,6 +1051,7 @@ body.panel-open {
 
   .content-shell {
     min-height: 100dvh;
+    width: 100%;
   }
 
   .main-card {
@@ -1058,6 +1059,8 @@ body.panel-open {
     background: transparent;
     border: 0;
     box-shadow: none;
+    width: 100%;
+    max-width: 100%;
   }
 
   .section-head {
@@ -1154,14 +1157,18 @@ body.panel-open {
   }
 
   .preview-layout {
+    grid-template-columns: 1fr;
     gap: 14px;
     margin-top: 16px;
+    width: 100%;
   }
 
   .preview-card,
   .side-card {
     padding: 14px;
     border-radius: 24px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .preview-head .primary,
@@ -1244,7 +1251,9 @@ body.panel-open {
   .side-panel {
     inset: 0;
     width: 100%;
+    max-width: 100%;
     max-height: 100dvh;
+    min-height: 100dvh;
     padding: calc(14px + env(safe-area-inset-top)) 14px calc(var(--mobile-nav-height) + 20px + env(safe-area-inset-bottom));
     border-radius: 0;
     transform: translateY(100%);
@@ -1272,6 +1281,7 @@ body.panel-open {
 
   .auth-card {
     width: 100%;
+    max-width: 100%;
     min-height: 100dvh;
     padding: calc(22px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom));
     border-radius: 0;
@@ -1295,6 +1305,19 @@ body.panel-open {
     margin-top: 14px;
     border-radius: 18px;
     overflow: hidden;
+  }
+
+  .dialog-card,
+  .dialog-card--compact,
+  .dialog-card--preview,
+  .preview-card,
+  .side-card,
+  .settings-section,
+  .signature-card,
+  .info-card,
+  .history-list,
+  .history-item {
+    max-width: 100%;
   }
 
   #invoiceCanvas,

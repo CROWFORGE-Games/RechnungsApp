@@ -1266,7 +1266,7 @@ function renderInvoiceItems() {
     .map((item, index) => {
       const totals = calculateItem(item);
       return `
-        <tr data-index="${index}">
+        <tr class="invoice-item-row" data-index="${index}">
           <td data-label="Artikel">
             <select name="articleId" class="item-article-select">
               ${buildArticleOptions(item.articleId)}
@@ -1280,32 +1280,45 @@ function renderInvoiceItems() {
               )}" placeholder="Art.-Nr." />
             </div>
           </td>
-          <td data-label="Menge">
-            <div class="quantity-stepper">
-              <button class="ghost quantity-stepper__button" type="button" data-action="decrease-quantity">-</button>
-              <input name="quantity" type="number" min="0" step="0.5" value="${escapeHtml(
-                item.quantity
-              )}" />
-              <button class="ghost quantity-stepper__button" type="button" data-action="increase-quantity">+</button>
+          <td data-label="Menge & Einheit">
+            <div class="invoice-field-row invoice-field-row--two">
+              <div class="invoice-field-stack">
+                <span class="invoice-field-caption">Menge</span>
+                <div class="quantity-stepper">
+                  <button class="ghost quantity-stepper__button" type="button" data-action="decrease-quantity">-</button>
+                  <input name="quantity" type="number" min="0" step="0.5" value="${escapeHtml(
+                    item.quantity
+                  )}" />
+                  <button class="ghost quantity-stepper__button" type="button" data-action="increase-quantity">+</button>
+                </div>
+              </div>
+              <div class="invoice-field-stack">
+                <span class="invoice-field-caption">Einheit</span>
+                <input name="unit" type="text" value="${escapeHtml(item.unit || "Stunden")}" />
+              </div>
             </div>
           </td>
-          <td data-label="Einheit">
-            <input name="unit" type="text" value="${escapeHtml(item.unit || "Stunden")}" />
-          </td>
-          <td data-label="Nettopreis">
-            <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
-              item.unitPrice
-            )}" />
-          </td>
-          <td data-label="MwSt. %">
-            <input name="taxRate" type="number" min="0" step="0.01" value="${escapeHtml(
-              item.taxRate
-            )}" />
-          </td>
-          <td data-label="Rabatt %">
-            <input name="discount" type="number" min="0" step="0.01" value="${escapeHtml(
-              item.discount
-            )}" />
+          <td data-label="Preis, MwSt. & Rabatt">
+            <div class="invoice-field-row invoice-field-row--three">
+              <div class="invoice-field-stack">
+                <span class="invoice-field-caption">Nettopreis</span>
+                <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
+                  item.unitPrice
+                )}" />
+              </div>
+              <div class="invoice-field-stack">
+                <span class="invoice-field-caption">MwSt. %</span>
+                <input name="taxRate" type="number" min="0" step="0.01" value="${escapeHtml(
+                  item.taxRate
+                )}" />
+              </div>
+              <div class="invoice-field-stack">
+                <span class="invoice-field-caption">Rabatt %</span>
+                <input name="discount" type="number" min="0" step="0.01" value="${escapeHtml(
+                  item.discount
+                )}" />
+              </div>
+            </div>
           </td>
           <td data-label="Summe">
             <div class="readonly-chip" data-role="row-total">${escapeHtml(
@@ -2007,7 +2020,7 @@ function compileClientTemplate(template, tokens) {
 }
 
 function buildClientEmailDraft(invoice, options = {}) {
-  const { includePdfLink = false } = options;
+  const { includePdfLink = false, includeInvoiceUrlToken = false } = options;
   const customerEmail = String(invoice.customer?.email || selectedCustomer()?.email || "").trim();
   const ccEmail = String(
     state.settings?.smtp?.ccEmail || state.settings?.business?.email || state.settings?.smtp?.fromEmail || ""
@@ -2023,7 +2036,7 @@ function buildClientEmailDraft(invoice, options = {}) {
     invoiceNumber: invoice.invoiceNumber,
     customerName: invoice.customer?.name || selectedCustomer()?.name || "",
     companyName: state.settings?.business?.companyName || "",
-    invoiceUrl
+    invoiceUrl: includeInvoiceUrlToken ? invoiceUrl : ""
   };
   const subject = compileClientTemplate(state.settings?.email?.subjectTemplate, tokens);
   const bodyParts = [
@@ -2040,7 +2053,7 @@ function buildClientEmailDraft(invoice, options = {}) {
 }
 
 function buildMailtoLink(invoice) {
-  const draft = buildClientEmailDraft(invoice, { includePdfLink: true });
+  const draft = buildClientEmailDraft(invoice);
   const params = [];
   if (draft.ccEmail) {
     params.push(`cc=${encodeURIComponent(draft.ccEmail)}`);

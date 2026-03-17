@@ -721,12 +721,12 @@ th {
   width: 28%;
 }
 
-.invoice-table td[data-label="Menge"],
-.invoice-table td[data-label="Einheit"],
-.invoice-table td[data-label="Nettopreis"],
-.invoice-table td[data-label="MwSt. %"],
-.invoice-table td[data-label="Rabatt %"] {
-  width: 10%;
+.invoice-table td[data-label="Menge & Einheit"] {
+  width: 20%;
+}
+
+.invoice-table td[data-label="Preis, MwSt. & Rabatt"] {
+  width: 24%;
 }
 
 .invoice-table td[data-label="Summe"] {
@@ -763,6 +763,31 @@ th {
 .invoice-description-fields {
   display: grid;
   gap: 8px;
+}
+
+.invoice-field-row {
+  display: grid;
+  gap: 10px;
+}
+
+.invoice-field-row--two {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+}
+
+.invoice-field-row--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.invoice-field-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.invoice-field-caption {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .readonly-chip {
@@ -1344,11 +1369,8 @@ body.panel-open {
 
   .invoice-table td[data-label="Artikel"],
   .invoice-table td[data-label="Beschreibung"],
-  .invoice-table td[data-label="Menge"],
-  .invoice-table td[data-label="Einheit"],
-  .invoice-table td[data-label="Nettopreis"],
-  .invoice-table td[data-label="MwSt. %"],
-  .invoice-table td[data-label="Rabatt %"],
+  .invoice-table td[data-label="Menge & Einheit"],
+  .invoice-table td[data-label="Preis, MwSt. & Rabatt"],
   .invoice-table td[data-label="Summe"],
   .invoice-table td[data-label="Aktion"] {
     width: 100%;
@@ -1358,6 +1380,14 @@ body.panel-open {
   .invoice-table select,
   .quantity-stepper__button {
     min-height: 56px;
+  }
+
+  .invoice-field-row--two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .invoice-field-row--three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .readonly-chip {

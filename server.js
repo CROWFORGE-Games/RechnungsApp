@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getStore as getBlobStore } from "@netlify/blobs";
 import express from "express";
 import nodemailer from "nodemailer";
 import { PDFDocument } from "pdf-lib";
@@ -92,9 +91,24 @@ app.use(express.json({ limit: "20mb" }));
 app.use(express.static(PUBLIC_DIR));
 
 let blobStoreCache = null;
+let blobStoreFactoryPromise = null;
 
-function getAppBlobStore() {
+async function getAppBlobStore() {
   if (!IS_NETLIFY) {
+    return null;
+  }
+
+  if (!blobStoreFactoryPromise) {
+    blobStoreFactoryPromise = import("@netlify/blobs")
+      .then((module) => module.getStore)
+      .catch((error) => {
+        console.error("Netlify Blobs Paket konnte nicht geladen werden.", error);
+        return null;
+      });
+  }
+
+  const getBlobStore = await blobStoreFactoryPromise;
+  if (!getBlobStore) {
     return null;
   }
 
@@ -232,7 +246,7 @@ function toArrayBuffer(value) {
 }
 
 async function readBlobJson(key) {
-  const store = getAppBlobStore();
+  const store = await getAppBlobStore();
   if (!store) {
     return null;
   }
@@ -245,7 +259,7 @@ async function readBlobJson(key) {
 }
 
 async function writeBlobJson(key, value) {
-  const store = getAppBlobStore();
+  const store = await getAppBlobStore();
   if (!store) {
     return false;
   }
@@ -262,7 +276,7 @@ async function writeBlobJson(key, value) {
 }
 
 async function readBlobBinary(key) {
-  const store = getAppBlobStore();
+  const store = await getAppBlobStore();
   if (!store) {
     return null;
   }
@@ -277,7 +291,7 @@ async function readBlobBinary(key) {
 }
 
 async function writeBlobBinary(key, value, contentType) {
-  const store = getAppBlobStore();
+  const store = await getAppBlobStore();
   if (!store) {
     return false;
   }

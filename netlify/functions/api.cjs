@@ -5,8 +5,7 @@ async function getHandler() {
     return cachedHandler;
   }
 
-  const [{ connectLambda }, serverlessModule, serverModule] = await Promise.all([
-    import("@netlify/blobs"),
+  const [serverlessModule, serverModule] = await Promise.all([
     import("serverless-http"),
     import("../../server.js")
   ]);
@@ -18,14 +17,6 @@ async function getHandler() {
   });
 
   cachedHandler = async (event, context) => {
-    if (event?.blobs) {
-      try {
-        connectLambda(event);
-      } catch (error) {
-        console.error("Netlify Blobs Lambda-Kontext konnte nicht verbunden werden.", error);
-      }
-    }
-
     await ensureDataFiles();
     return expressHandler(event, context);
   };

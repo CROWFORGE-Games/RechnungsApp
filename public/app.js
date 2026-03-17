@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.3.3";
+const APP_VERSION = "V0.3.4";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -306,7 +306,9 @@ async function api(url, options = {}) {
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: "Unbekannter Fehler" }));
+    const errorData = await response
+      .json()
+      .catch(async () => ({ error: (await response.text().catch(() => "")).trim() || "Unbekannter Fehler" }));
     if (
       response.status === 401 &&
       !String(url).includes("/api/auth/login") &&
@@ -328,7 +330,12 @@ async function api(url, options = {}) {
     return null;
   }
 
-  return response.json();
+  return response
+    .json()
+    .catch(async () => {
+      const text = (await response.text().catch(() => "")).trim();
+      throw new Error(text || "Antwort konnte nicht verarbeitet werden.");
+    });
 }
 
 function clearAuthToken() {

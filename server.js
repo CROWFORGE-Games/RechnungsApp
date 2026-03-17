@@ -533,6 +533,10 @@ function getLogoFileName(kind) {
 }
 
 function getLogoFallbackPath(kind) {
+  if (kind === "app") {
+    return path.join(PUBLIC_ASSET_DIR, "app-maskable.svg");
+  }
+
   const fileName = getLogoFileName(kind);
   return fileName ? path.join(PUBLIC_ASSET_DIR, fileName) : path.join(PUBLIC_ASSET_DIR, "app-maskable.svg");
 }

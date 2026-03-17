@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.3.4";
+const APP_VERSION = "V0.3.6";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -80,6 +80,7 @@ const appLogoFileInput = document.getElementById("appLogoFile");
 const appFavicon = document.getElementById("appFavicon");
 const appleTouchIcon = document.getElementById("appleTouchIcon");
 const bannerLogoImages = [...document.querySelectorAll("[data-banner-logo]")];
+const appLogoImages = [...document.querySelectorAll("[data-app-logo]")];
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
@@ -835,6 +836,9 @@ function refreshBrandAssets() {
   const stamp = `?v=${Date.now()}`;
   bannerLogoImages.forEach((image) => {
     image.src = `${BRAND_ASSET_URLS.invoice}${stamp}`;
+  });
+  appLogoImages.forEach((image) => {
+    image.src = `${BRAND_ASSET_URLS.app}${stamp}`;
   });
   if (appFavicon) {
     appFavicon.href = `${BRAND_ASSET_URLS.app}${stamp}`;

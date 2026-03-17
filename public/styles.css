@@ -340,8 +340,11 @@ h3 {
 
 .auth-card__logo {
   display: block;
-  width: min(100%, 220px);
-  margin: 0 auto 12px;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 14px;
+  object-fit: contain;
+  object-position: center;
 }
 
 .auth-grid {
@@ -1291,7 +1294,8 @@ body.panel-open {
   }
 
   .auth-card__logo {
-    width: min(100%, 210px);
+    width: 88px;
+    height: 88px;
     margin-bottom: 18px;
   }
 

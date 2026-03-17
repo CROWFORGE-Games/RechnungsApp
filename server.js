@@ -34,6 +34,77 @@ const PRESET_USERS = [
   { username: "kaindl_daniel", password: "admin" }
 ];
 
+function createAdminSeedPayload() {
+  return {
+    settings: {
+      business: {
+        companyName: "Testfirma",
+        senderLine: "Abs.: Testfirma | Musterstraße 1 | 6335 Thiersee",
+        addressLine1: "Musterstraße 1",
+        addressLine2: "",
+        postalCode: "6335",
+        city: "Thiersee",
+        country: "Österreich",
+        phone: "+43 5376 20000",
+        email: "mathias.mairhofer@gmail.com",
+        uid: "ATU12345678",
+        iban: "AT57 2050 6012 0000 0071",
+        bic: "SPKUAT22XXX",
+        bankName: "Sparkasse Thiersee",
+        issuerName: "Daniel Kaindl",
+        paymentNote: "Fällig innerhalb von 14 Tagen ohne Abzug.",
+        footerNote: "Bitte geben Sie bei der Überweisung die Rechnungsnummer an."
+      },
+      smtp: {
+        enabled: false,
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        user: "",
+        pass: "",
+        fromEmail: "",
+        ccEmail: "mathias.mairhofer@gmail.com"
+      },
+      invoice: {
+        title: "Rechnung",
+        counterYear: new Date().getFullYear(),
+        counterValue: 0
+      },
+      email: {
+        subjectTemplate: "Rechnung {{invoiceNumber}}",
+        bodyTemplate:
+          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
+      }
+    },
+    customers: [
+      {
+        customerNumber: "10001",
+        name: "CROWFORGE Games",
+        contactPerson: "Mathias Mayrhofer",
+        street: "Musterweg 8",
+        postalCode: "6335",
+        city: "Thiersee",
+        country: "Österreich",
+        phone: "+43 660 000000",
+        email: "contact@crowforge-games.com",
+        uid: "ATU87654321",
+        notes: "Testkunde für mobile Rechnungsprüfung."
+      }
+    ],
+    articles: [
+      {
+        group: "Test",
+        number: "10001",
+        name: "Testleistung",
+        description: "Testartikel für Rechnungs-App",
+        unit: "Std.",
+        unitPrice: 72,
+        taxRate: 20
+      }
+    ]
+  };
+}
+
 const DEFAULT_STORE = {
   settings: {
     business: {
@@ -183,21 +254,45 @@ function createUserRecord({
   };
 }
 
+function applySeedDataIfNeeded(user) {
+  if (user.username !== "admin") {
+    return user;
+  }
+
+  const needsSeedData =
+    !user.customers.length &&
+    !user.articles.length &&
+    !user.invoices.length &&
+    !String(user.settings?.business?.companyName || "").trim();
+
+  if (!needsSeedData) {
+    return user;
+  }
+
+  const seed = createAdminSeedPayload();
+  return createUserRecord({
+    ...user,
+    settings: seed.settings,
+    customers: seed.customers.map((entry) => sanitizeCustomer(entry)),
+    articles: seed.articles.map((entry) => sanitizeArticle(entry))
+  });
+}
+
 function ensurePresetUsers(users = []) {
   const normalizedUsers = Array.isArray(users) ? [...users] : [];
 
   PRESET_USERS.forEach(({ username, password }) => {
     const existingIndex = normalizedUsers.findIndex((entry) => entry.username === username);
     if (existingIndex >= 0) {
-      normalizedUsers[existingIndex] = createUserRecord({
+      normalizedUsers[existingIndex] = applySeedDataIfNeeded(createUserRecord({
         ...normalizedUsers[existingIndex],
         username,
         passwordHash: hashPassword(password)
-      });
+      }));
       return;
     }
 
-    normalizedUsers.push(createUserRecord({ username, password }));
+    normalizedUsers.push(applySeedDataIfNeeded(createUserRecord({ username, password })));
   });
 
   return normalizedUsers;

@@ -102,6 +102,10 @@ const signatureDialogCard = signatureDialog.querySelector(".dialog-card");
 const smtpInfoDialog = document.getElementById("smtpInfoDialog");
 const closeSmtpInfoDialogButton = document.getElementById("closeSmtpInfoDialog");
 const confirmSmtpInfoDialogButton = document.getElementById("confirmSmtpInfoDialog");
+const installPrompt = document.getElementById("installPrompt");
+const installPromptText = document.getElementById("installPromptText");
+const dismissInstallPromptButton = document.getElementById("dismissInstallPrompt");
+const installAppButton = document.getElementById("installAppButton");
 const railButtons = [...document.querySelectorAll(".rail-button")];
 const panelElements = [...document.querySelectorAll(".side-panel")];
 const openPanelButtons = [...document.querySelectorAll("[data-open-panel]")];
@@ -183,6 +187,7 @@ let renderNonce = 0;
 let isSignatureDrawing = false;
 let hasSignatureStroke = false;
 let lastBusinessEmailValue = "";
+let deferredInstallPrompt = null;
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -1957,7 +1962,8 @@ function compileClientTemplate(template, tokens) {
   return String(template || "").replace(/\{\{(\w+)\}\}/g, (_, key) => tokens[key] ?? "");
 }
 
-function buildClientEmailDraft(invoice) {
+function buildClientEmailDraft(invoice, options = {}) {
+  const { includePdfLink = false } = options;
   const customerEmail = String(invoice.customer?.email || selectedCustomer()?.email || "").trim();
   const ccEmail = String(
     state.settings?.smtp?.ccEmail || state.settings?.business?.email || state.settings?.smtp?.fromEmail || ""
@@ -1978,7 +1984,7 @@ function buildClientEmailDraft(invoice) {
   const subject = compileClientTemplate(state.settings?.email?.subjectTemplate, tokens);
   const bodyParts = [
     compileClientTemplate(state.settings?.email?.bodyTemplate, tokens).trim(),
-    invoiceUrl ? `PDF-Link: ${invoiceUrl}` : ""
+    includePdfLink && invoiceUrl ? `PDF-Link: ${invoiceUrl}` : ""
   ].filter(Boolean);
   return {
     customerEmail,
@@ -1990,7 +1996,7 @@ function buildClientEmailDraft(invoice) {
 }
 
 function buildMailtoLink(invoice) {
-  const draft = buildClientEmailDraft(invoice);
+  const draft = buildClientEmailDraft(invoice, { includePdfLink: true });
   const params = [];
   if (draft.ccEmail) {
     params.push(`cc=${encodeURIComponent(draft.ccEmail)}`);
@@ -2017,16 +2023,9 @@ async function openExternalMailApp(invoice) {
           type: blob.type || "application/pdf"
         });
         if (navigator.canShare({ files: [file] })) {
-          const shareText = [
-            draft.body,
-            draft.customerEmail ? `An: ${draft.customerEmail}` : "",
-            draft.ccEmail ? `CC: ${draft.ccEmail}` : ""
-          ]
-            .filter(Boolean)
-            .join("\n\n");
           await navigator.share({
             title: draft.subject,
-            text: shareText,
+            text: draft.body,
             files: [file]
           });
           return "share";
@@ -2296,6 +2295,68 @@ function registerServiceWorker() {
   });
 }
 
+function isStandaloneApp() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function hideInstallPrompt() {
+  if (installPrompt) {
+    installPrompt.hidden = true;
+  }
+}
+
+function showInstallPrompt() {
+  if (!installPrompt || isStandaloneApp()) {
+    return;
+  }
+
+  installPrompt.hidden = false;
+  if (deferredInstallPrompt) {
+    installPromptText.textContent =
+      "Installiere die App auf deinem Gerät, damit sie ohne Browserleiste wie eine echte App startet.";
+  } else {
+    installPromptText.textContent =
+      "Wenn dein Browser keine direkte Installation anbietet, nutze im Browser-Menü „Zum Startbildschirm hinzufügen“ oder „App installieren“.";
+  }
+}
+
+function bindInstallPrompt() {
+  if (!installPrompt || isStandaloneApp()) {
+    hideInstallPrompt();
+    return;
+  }
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    showInstallPrompt();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    hideInstallPrompt();
+  });
+
+  dismissInstallPromptButton?.addEventListener("click", hideInstallPrompt);
+  installAppButton?.addEventListener("click", async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice.catch(() => null);
+      deferredInstallPrompt = null;
+      hideInstallPrompt();
+      return;
+    }
+
+    window.alert(
+      "Bitte im Browser-Menü „Zum Startbildschirm hinzufügen“ oder „App installieren“ wählen."
+    );
+  });
+
+  window.addEventListener("load", () => {
+    window.setTimeout(showInstallPrompt, 900);
+  });
+}
+
 function bindPanelButtons() {
   navToggle.addEventListener("click", toggleNavigation);
   focusMainButton?.addEventListener("click", closePanels);
@@ -2514,6 +2575,7 @@ loadCollapsedState();
 bindPanelButtons();
 bindSignaturePad();
 bindDialogs();
+bindInstallPrompt();
 bindStaticEvents();
 registerServiceWorker();
 initializeApp();

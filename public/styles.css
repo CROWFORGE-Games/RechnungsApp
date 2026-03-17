@@ -309,6 +309,27 @@ h3 {
   z-index: 60;
 }
 
+.install-sheet {
+  position: fixed;
+  inset: auto 18px 18px;
+  z-index: 58;
+}
+
+.install-sheet__card {
+  width: min(100%, 440px);
+  margin-left: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.install-sheet__actions {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
 .auth-overlay {
   display: grid;
   place-items: center;
@@ -1368,6 +1389,21 @@ body.panel-open {
   .auth-overlay {
     padding: 0;
     align-items: stretch;
+  }
+
+  .install-sheet {
+    inset: auto 12px calc(var(--mobile-nav-height) + 16px + env(safe-area-inset-bottom));
+  }
+
+  .install-sheet__card {
+    width: 100%;
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .install-sheet__actions .primary,
+  .install-sheet__actions .ghost {
+    width: 100%;
   }
 
   .auth-card {

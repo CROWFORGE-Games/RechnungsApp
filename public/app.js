@@ -724,7 +724,9 @@ function loadImage(src) {
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = reject;
-    image.src = `${src}?v=${Date.now()}`;
+    const url = new URL(String(src), window.location.origin);
+    url.searchParams.set("cb", String(Date.now()));
+    image.src = url.toString();
   });
 }
 
@@ -1244,6 +1246,20 @@ async function uploadLogoAsset(kind, file) {
   });
 }
 
+async function previewSelectedLogo(kind, file) {
+  if (!file) {
+    refreshBrandAssets();
+    return;
+  }
+
+  const imageDataUrl = await fileToPngDataUrl(file);
+  settingsLogoPreviewImages.forEach((image) => {
+    if (image.dataset.settingsLogoPreview === kind) {
+      image.src = imageDataUrl;
+    }
+  });
+}
+
 async function removeLogoAsset(kind) {
   await api(`/api/assets/logo/${encodeURIComponent(kind)}`, {
     method: "DELETE"
@@ -1736,14 +1752,14 @@ function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = I
   return (lineCount + 1) * lineHeight;
 }
 
-function drawFallbackLayout(context) {
+function drawFallbackLayout(context, headerShift = 0) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
   context.strokeStyle = "#222222";
   context.lineWidth = 1.2;
   context.beginPath();
-  context.moveTo(62, 150);
-  context.lineTo(734, 150);
+  context.moveTo(62, 150 + headerShift);
+  context.lineTo(734, 150 + headerShift);
   context.moveTo(62, 980);
   context.lineTo(734, 980);
   context.stroke();
@@ -1751,11 +1767,11 @@ function drawFallbackLayout(context) {
   context.strokeStyle = "#c9c9c9";
   context.lineWidth = 1;
   context.beginPath();
-  context.roundRect(438, 162, 280, 150, 6);
+  context.roundRect(438, 162 + headerShift, 280, 150, 6);
   context.fill();
   context.stroke();
   context.fillStyle = "#d5d5d5";
-  context.fillRect(64, 392, 674, 22);
+  context.fillRect(64, 392 + headerShift, 674, 22);
 }
 
 function getPreviewTaxLabel() {
@@ -1780,13 +1796,15 @@ async function renderCanvas() {
     return;
   }
 
+  const headerShift = logo ? 0 : -58;
+
   canvasContext.clearRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
   canvasContext.fillStyle = "#ffffff";
   canvasContext.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
   if (template) {
     canvasContext.drawImage(template, 0, 0, invoiceCanvas.width, invoiceCanvas.height);
   } else {
-    drawFallbackLayout(canvasContext);
+    drawFallbackLayout(canvasContext, headerShift);
   }
 
   const customer = selectedCustomer();
@@ -1803,26 +1821,13 @@ async function renderCanvas() {
     const drawWidth = logo.width * ratio;
     const drawHeight = logo.height * ratio;
     canvasContext.drawImage(logo, 66, 46, drawWidth, drawHeight);
-  } else {
-    canvasContext.save();
-    canvasContext.strokeStyle = "#8aa596";
-    canvasContext.lineWidth = 2;
-    canvasContext.setLineDash([8, 6]);
-    canvasContext.strokeRect(66, 46, 180, 78);
-    canvasContext.setLineDash([]);
-    canvasContext.fillStyle = "#607668";
-    canvasContext.font = '16px Calibri, Candara, "Segoe UI", sans-serif';
-    canvasContext.textAlign = "center";
-    canvasContext.fillText("Logo", 156, 78);
-    canvasContext.textAlign = "start";
-    canvasContext.restore();
   }
 
   canvasContext.fillStyle = "#101010";
   canvasContext.textBaseline = "top";
   canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillStyle = "#2e2e2e";
-  drawWrappedText(canvasContext, business.senderLine || "", 66, 164, 340, 14, 2);
+  drawWrappedText(canvasContext, business.senderLine || "", 66, 164 + headerShift, 340, 14, 2);
 
   canvasContext.fillStyle = "#111111";
   canvasContext.font = '14px Calibri, Candara, "Segoe UI", sans-serif';
@@ -1836,11 +1841,11 @@ async function renderCanvas() {
     : ["Bitte Kunde auswählen"];
 
   addressLines.forEach((line, index) => {
-    canvasContext.fillText(line, 66, 190 + index * 20);
+    canvasContext.fillText(line, 66, 190 + headerShift + index * 20);
   });
 
   canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
-  canvasContext.fillText("Kundeninfo", 446, 180);
+  canvasContext.fillText("Kundeninfo", 446, 180 + headerShift);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   const customerInfoLines = [`Kunden-Nr.:   ${customer?.customerNumber || "-"}`];
   if (customer?.phone) {
@@ -1853,22 +1858,22 @@ async function renderCanvas() {
     customerInfoLines.push(`UID-Nr.:      ${customer.uid}`);
   }
   customerInfoLines.forEach((line, index) => {
-    canvasContext.fillText(line, 446, 212 + index * 22);
+    canvasContext.fillText(line, 446, 212 + headerShift + index * 22);
   });
 
   canvasContext.font = 'bold 18px Calibri, Candara, "Segoe UI", sans-serif';
-  canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, 345);
+  canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, 345 + headerShift);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   if (state.invoiceDraft.reference) {
-    canvasContext.fillText(`zu Bst.: ${state.invoiceDraft.reference}`, 66, 373);
+    canvasContext.fillText(`zu Bst.: ${state.invoiceDraft.reference}`, 66, 373 + headerShift);
   }
 
   canvasContext.textAlign = "right";
-  canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, 345);
-  canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, 369);
+  canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, 345 + headerShift);
+  canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, 369 + headerShift);
   canvasContext.textAlign = "left";
 
-  const tableTop = 404;
+  const tableTop = 404 + headerShift;
   canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.textBaseline = "middle";
   canvasContext.fillText("Pos", 68, tableTop);
@@ -1880,7 +1885,7 @@ async function renderCanvas() {
   canvasContext.textAlign = "left";
   canvasContext.textBaseline = "top";
 
-  let itemY = 430;
+  let itemY = 430 + headerShift;
   validItems.forEach((item, index) => {
     const current = calculateItem(item);
     const hasDiscount = toNumber(item.discount) > 0;
@@ -1911,11 +1916,11 @@ async function renderCanvas() {
   canvasContext.strokeStyle = "#202020";
   canvasContext.lineWidth = 1;
   canvasContext.beginPath();
-  canvasContext.moveTo(66, Math.max(itemY - 10, 468));
-  canvasContext.lineTo(738, Math.max(itemY - 10, 468));
+  canvasContext.moveTo(66, Math.max(itemY - 10, 468 + headerShift));
+  canvasContext.lineTo(738, Math.max(itemY - 10, 468 + headerShift));
   canvasContext.stroke();
 
-  const totalsStartY = Math.max(itemY + 18, 500);
+  const totalsStartY = Math.max(itemY + 18, 500 + headerShift);
   const drawAmountLine = (label, value, y, bold = false) => {
     canvasContext.textAlign = "left";
     canvasContext.font = `${bold ? "bold " : ""}${bold ? "16" : "14"}px Calibri, Candara, "Segoe UI", sans-serif`;
@@ -2382,13 +2387,17 @@ function buildClientEmailDraft(invoice, options = {}) {
 function buildMailtoLink(invoice) {
   const draft = buildClientEmailDraft(invoice);
   const recipient = String(draft.customerEmail || "").trim();
-  const params = [];
+  const params = new URLSearchParams();
   if (draft.ccEmail) {
-    params.push(`cc=${encodeURIComponent(draft.ccEmail)}`);
+    params.set("cc", draft.ccEmail);
   }
-  params.push(`subject=${encodeURIComponent(draft.subject)}`);
-  params.push(`body=${encodeURIComponent(draft.body)}`);
-  return `mailto:${recipient}?${params.join("&")}`;
+  if (draft.subject) {
+    params.set("subject", draft.subject);
+  }
+  if (draft.body) {
+    params.set("body", draft.body);
+  }
+  return `mailto:${recipient}?${params.toString()}`;
 }
 
 function buildInvoiceRequestPayload(deliveryMethod = "external-app") {
@@ -3023,6 +3032,22 @@ function bindStaticEvents() {
   toggleSmtpPassButton?.addEventListener("click", () => {
     smtpPassInput.type = smtpPassInput.type === "password" ? "text" : "password";
     updateSmtpPassToggleLabel();
+  });
+  invoiceLogoFileInput?.addEventListener("change", async (event) => {
+    const file = event.target?.files?.[0] || null;
+    try {
+      await previewSelectedLogo("invoice", file);
+    } catch (error) {
+      setStatus(error.message || "Rechnungslogo konnte nicht geladen werden.", "error");
+    }
+  });
+  appLogoFileInput?.addEventListener("change", async (event) => {
+    const file = event.target?.files?.[0] || null;
+    try {
+      await previewSelectedLogo("app", file);
+    } catch (error) {
+      setStatus(error.message || "App-Logo konnte nicht geladen werden.", "error");
+    }
   });
   removeInvoiceLogoButton?.addEventListener("click", clearInvoiceLogo);
   addCcEmailButton?.addEventListener("click", () => addCcEmailRow(""));

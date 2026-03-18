@@ -2402,7 +2402,7 @@ async function shareInvoiceDraft() {
     renderInvoiceHistory();
     closeSendDialog();
 
-    await shareInvoiceFile(response.invoice);
+    await openExternalMailApp(response.invoice);
 
     const preservedCustomerId = state.invoiceDraft.customerId;
     state.invoiceDraft = {
@@ -2418,7 +2418,7 @@ async function shareInvoiceDraft() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
-    setStatus("Rechnung wurde zum Teilen vorbereitet.", "success");
+    setStatus("Mail-App wurde zum Teilen der Rechnung geöffnet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
@@ -2459,8 +2459,8 @@ async function shareExistingInvoice(invoiceId) {
       throw new Error("Rechnung nicht gefunden.");
     }
 
-    await shareInvoiceFile(invoice);
-    setStatus("Rechnung wurde zum Teilen geöffnet.", "success");
+    await openExternalMailApp(invoice);
+    setStatus("Mail-App wurde zum Teilen der Rechnung geöffnet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");

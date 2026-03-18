@@ -887,6 +887,25 @@ function appendTokenToPath(filePath, token) {
   return `${url.pathname}${url.search}`;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry(operation, attempts = 2, delayMs = 150) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await sleep(delayMs);
+      }
+    }
+  }
+  throw lastError;
+}
+
 function serializeInvoiceForClient(invoice, token) {
   if (!invoice) {
     return invoice;
@@ -908,13 +927,7 @@ function serializeInvoiceForClient(invoice, token) {
 
 async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   if (!imageDataUrl?.startsWith("data:image/png;base64,")) {
-    return {
-      pdfName: null,
-      pdfUrl: null,
-      pngName: null,
-      pngUrl: null,
-      pdfBuffer: null
-    };
+    throw new Error("Rechnungsvorschau konnte nicht als PNG übergeben werden.");
   }
 
   const baseName = `${user.id}_${invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_");
@@ -922,25 +935,39 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   const pdfName = `${baseName}.pdf`;
   const pngKey = `generated/${pngName}`;
   const pdfKey = `generated/${pdfName}`;
-  const pngBuffer = Buffer.from(imageDataUrl.split(",")[1], "base64");
+  const pngBase64 = String(imageDataUrl).split(",")[1] || "";
+  const pngBuffer = Buffer.from(pngBase64, "base64");
+  if (!pngBuffer.length) {
+    throw new Error("PNG-Daten der Rechnung sind leer.");
+  }
 
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]);
-  const image = await pdfDoc.embedPng(pngBuffer);
-  const dimensions = image.scaleToFit(page.getWidth(), page.getHeight());
-  page.drawImage(image, {
-    x: (page.getWidth() - dimensions.width) / 2,
-    y: (page.getHeight() - dimensions.height) / 2,
-    width: dimensions.width,
-    height: dimensions.height
-  });
+  const pdfBuffer = await withRetry(async () => {
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    const image = await pdfDoc.embedPng(pngBuffer);
+    const dimensions = image.scaleToFit(page.getWidth(), page.getHeight());
+    page.drawImage(image, {
+      x: (page.getWidth() - dimensions.width) / 2,
+      y: (page.getHeight() - dimensions.height) / 2,
+      width: dimensions.width,
+      height: dimensions.height
+    });
 
-  const pdfBytes = await pdfDoc.save();
-  const pdfBuffer = Buffer.from(pdfBytes);
+    const pdfBytes = await pdfDoc.save();
+    const builtPdfBuffer = Buffer.from(pdfBytes);
+    if (!builtPdfBuffer.length) {
+      throw new Error("PDF-Daten der Rechnung sind leer.");
+    }
+    return builtPdfBuffer;
+  }, 3, 200);
 
   if (IS_NETLIFY) {
-    const pngStored = await writeBlobBinary(pngKey, pngBuffer, "image/png");
-    const pdfStored = await writeBlobBinary(pdfKey, pdfBytes, "application/pdf");
+    const pngStored = await withRetry(() => writeBlobBinary(pngKey, pngBuffer, "image/png"), 3, 200);
+    const pdfStored = await withRetry(
+      () => writeBlobBinary(pdfKey, pdfBuffer, "application/pdf"),
+      3,
+      200
+    );
     if (pngStored && pdfStored) {
       return {
         pdfName,
@@ -953,8 +980,8 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   }
 
   await fs.mkdir(GENERATED_DIR, { recursive: true });
-  await fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer);
-  await fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer);
+  await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer), 3, 200);
+  await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer), 3, 200);
 
   return {
     pdfName,

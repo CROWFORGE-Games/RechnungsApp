@@ -999,6 +999,48 @@ function fileToPngDataUrl(file) {
   });
 }
 
+function canvasToPngDataUrl(canvas) {
+  return new Promise((resolve, reject) => {
+    if (!canvas) {
+      reject(new Error("Rechnungsansicht ist nicht verfügbar."));
+      return;
+    }
+
+    if (typeof canvas.toBlob === "function") {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Vorschau konnte nicht als PNG erzeugt werden."));
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = String(reader.result || "");
+          if (!result.startsWith("data:image/png;base64,")) {
+            reject(new Error("PNG-Daten konnten nicht gelesen werden."));
+            return;
+          }
+          resolve(result);
+        };
+        reader.onerror = () => reject(new Error("PNG-Daten konnten nicht gelesen werden."));
+        reader.readAsDataURL(blob);
+      }, "image/png");
+      return;
+    }
+
+    try {
+      const dataUrl = canvas.toDataURL("image/png");
+      if (!String(dataUrl).startsWith("data:image/png;base64,")) {
+        reject(new Error("Vorschau konnte nicht als PNG erzeugt werden."));
+        return;
+      }
+      resolve(dataUrl);
+    } catch (error) {
+      reject(new Error(error.message || "PNG-Erstellung fehlgeschlagen."));
+    }
+  });
+}
+
 async function uploadLogoAsset(kind, file) {
   if (!file) {
     return;
@@ -2063,34 +2105,74 @@ function buildMailtoLink(invoice) {
   return `mailto:${encodeURIComponent(draft.customerEmail)}?${params.join("&")}`;
 }
 
+async function fetchInvoicePdfFile(invoice) {
+  const pdfUrl = buildAuthenticatedFileUrl(invoice.files?.pdfUrl);
+  if (!pdfUrl) {
+    return null;
+  }
+
+  const response = await fetch(pdfUrl, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("PDF konnte nicht geladen werden.");
+  }
+
+  const blob = await response.blob();
+  if (!blob.size) {
+    throw new Error("PDF ist leer.");
+  }
+
+  return new File([blob], `${invoice.invoiceNumber}.pdf`, {
+    type: blob.type || "application/pdf"
+  });
+}
+
+function triggerFileDownload(file) {
+  const objectUrl = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = file.name || "rechnung.pdf";
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 async function openExternalMailApp(invoice) {
   const draft = buildClientEmailDraft(invoice);
-  const pdfUrl = buildAuthenticatedFileUrl(invoice.files?.pdfUrl);
   const shareSupported =
     typeof navigator !== "undefined" &&
     typeof navigator.share === "function" &&
     typeof navigator.canShare === "function";
+  let pdfFile = null;
 
-  if (shareSupported && pdfUrl) {
+  try {
+    pdfFile = await fetchInvoicePdfFile(invoice);
+  } catch {
+    pdfFile = null;
+  }
+
+  if (shareSupported && pdfFile) {
     try {
-      const response = await fetch(pdfUrl);
-      if (response.ok) {
-        const blob = await response.blob();
-        const file = new File([blob], `${invoice.invoiceNumber}.pdf`, {
-          type: blob.type || "application/pdf"
+      if (navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          title: draft.subject,
+          text: draft.body,
+          files: [pdfFile]
         });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: draft.subject,
-            text: draft.body,
-            files: [file]
-          });
-          return "share";
-        }
+        return "share";
       }
     } catch {
-      // Fallback auf mailto, wenn Teilen oder PDF-Fetch nicht unterstützt wird.
+      // Fallback unten
     }
+  }
+
+  if (pdfFile) {
+    triggerFileDownload(pdfFile);
+    window.setTimeout(() => {
+      window.location.href = buildMailtoLink(invoice);
+    }, 250);
+    return "download+mailto";
   }
 
   window.location.href = buildMailtoLink(invoice);
@@ -2164,7 +2246,7 @@ async function sendInvoice() {
           ...item,
           unit: String(item.unit || "Stunden").trim()
         })),
-        imageDataUrl: invoiceCanvas.toDataURL("image/png"),
+        imageDataUrl: await canvasToPngDataUrl(invoiceCanvas),
         deliveryMethod: isSmtpEnabled() ? "smtp" : "external-app"
       })
     });
@@ -2183,7 +2265,13 @@ async function sendInvoice() {
       window.alert(response.email.message || "Mailversand fehlgeschlagen.");
     }
     if (response.email?.status === "external-app" && response.invoice) {
-      await openExternalMailApp(response.invoice);
+      const handoffMode = await openExternalMailApp(response.invoice);
+      if (handoffMode === "download+mailto") {
+        setStatus(
+          "PDF wurde heruntergeladen und die Mail-App zum Versand geöffnet.",
+          "success"
+        );
+      }
     }
 
     const preservedCustomerId = state.invoiceDraft.customerId;

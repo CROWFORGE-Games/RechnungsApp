@@ -294,6 +294,15 @@ function loadImportedUserSeed(username) {
   };
 }
 
+async function getImportedUsernames() {
+  try {
+    const entries = await fs.readdir(IMPORT_DIR, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
 const DEFAULT_STORE = {
   settings: {
     business: {
@@ -371,6 +380,7 @@ let blobStoreCache = null;
 let blobStoreFactoryPromise = null;
 const pendingGoogleSheetSyncPayloads = new Map();
 const activeGoogleSheetSyncUsers = new Set();
+let importedUsersBackfillPromise = null;
 
 async function getAppBlobStore() {
   if (!IS_NETLIFY) {
@@ -864,6 +874,11 @@ async function hydrateUserFromGoogleSheets(store, user) {
       return user;
     }
 
+    if (remoteDataNeedsBackfill(user, response.data)) {
+      await syncUserToGoogleSheets(user);
+      return user;
+    }
+
     applyRemoteUserData(user, response.data);
     await writeStore(store);
   } catch (error) {
@@ -886,6 +901,52 @@ async function syncUserToGoogleSheets(user) {
   } catch (error) {
     console.error(`Google-Sheets-Sync fehlgeschlagen (${user.username}).`, error);
   }
+}
+
+function remoteDataNeedsBackfill(user, remoteData = {}) {
+  const localCustomerCount = Array.isArray(user?.customers) ? user.customers.length : 0;
+  const localArticleCount = Array.isArray(user?.articles) ? user.articles.length : 0;
+  const remoteCustomerCount = Array.isArray(remoteData?.customers) ? remoteData.customers.length : 0;
+  const remoteArticleCount = Array.isArray(remoteData?.articles) ? remoteData.articles.length : 0;
+
+  return (
+    (localCustomerCount > 0 && remoteCustomerCount < localCustomerCount) ||
+    (localArticleCount > 0 && remoteArticleCount < localArticleCount)
+  );
+}
+
+async function backfillImportedUsersToGoogleSheets(store) {
+  if (!isGoogleSheetsSyncConfigured()) {
+    return;
+  }
+
+  if (importedUsersBackfillPromise) {
+    return importedUsersBackfillPromise;
+  }
+
+  importedUsersBackfillPromise = (async () => {
+    const importedUsernames = await getImportedUsernames();
+
+    for (const username of importedUsernames) {
+      const user = findUserByUsername(store, username);
+      if (!user) {
+        continue;
+      }
+
+      try {
+        const response = await requestGoogleSheetsSync("getUserData", { username });
+        if (!response?.ok || !response.data || remoteDataNeedsBackfill(user, response.data)) {
+          await syncUserToGoogleSheets(user);
+        }
+      } catch (error) {
+        console.error(`Google-Sheets-Backfill fehlgeschlagen (${username}).`, error);
+      }
+    }
+  })().finally(() => {
+    importedUsersBackfillPromise = null;
+  });
+
+  return importedUsersBackfillPromise;
 }
 
 async function fetchGoogleSheetsUserSummaries() {
@@ -1694,6 +1755,9 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
     await hydrateUserFromGoogleSheets(req.store, req.user);
+    if (req.user.username === "admin") {
+      await backfillImportedUsersToGoogleSheets(req.store);
+    }
     const adminUsers = req.user.username === "admin" ? await buildAdminUsersResponse(req.store) : [];
     res.json({
       settings: getUserSettingsForClient(req.user),

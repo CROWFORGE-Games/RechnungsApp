@@ -232,6 +232,15 @@ textarea {
   text-align: center;
 }
 
+.settings-version {
+  padding: 6px 8px 2px;
+  font-size: 0.84rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
 .content-shell {
   min-width: 0;
 }

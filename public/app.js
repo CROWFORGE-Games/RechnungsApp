@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.4.4";
+const APP_VERSION = "V0.4.5";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -40,6 +40,7 @@ const state = {
 const appShell = document.getElementById("appShell");
 const statusBanner = document.getElementById("statusBanner");
 const appVersion = document.getElementById("appVersion");
+const settingsVersion = document.getElementById("settingsVersion");
 const templateHint = document.getElementById("templateHint");
 const panelOverlay = document.getElementById("panelOverlay");
 const settingsForm = document.getElementById("settingsForm");
@@ -2402,7 +2403,7 @@ async function shareInvoiceDraft() {
     renderInvoiceHistory();
     closeSendDialog();
 
-    await openExternalMailApp(response.invoice);
+    await shareInvoiceFile(response.invoice);
 
     const preservedCustomerId = state.invoiceDraft.customerId;
     state.invoiceDraft = {
@@ -2418,7 +2419,7 @@ async function shareInvoiceDraft() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
-    setStatus("Mail-App wurde zum Teilen der Rechnung geöffnet.", "success");
+    setStatus("Rechnung wurde zum Teilen geöffnet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
@@ -2459,8 +2460,8 @@ async function shareExistingInvoice(invoiceId) {
       throw new Error("Rechnung nicht gefunden.");
     }
 
-    await openExternalMailApp(invoice);
-    setStatus("Mail-App wurde zum Teilen der Rechnung geöffnet.", "success");
+    await shareInvoiceFile(invoice);
+    setStatus("Rechnung wurde zum Teilen geöffnet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
@@ -2879,6 +2880,9 @@ async function bootstrap() {
 
 async function initializeApp() {
   appVersion.textContent = APP_VERSION;
+  if (settingsVersion) {
+    settingsVersion.textContent = APP_VERSION;
+  }
   panelOverlay.hidden = true;
   sendDialog.hidden = true;
   signatureDialog.hidden = true;

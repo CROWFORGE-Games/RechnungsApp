@@ -25,6 +25,9 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3000);
 const GOOGLE_SHEETS_WEBAPP_URL = String(process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
 const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECRET || "").trim();
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
+const RESEND_FROM_EMAIL = String(process.env.RESEND_FROM_EMAIL || "").trim();
+const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
 const BLOB_STORE_NAME = "rechnungsapp";
 const STORE_BLOB_KEY = "store.json";
 const LOGO_KEYS = {
@@ -801,6 +804,27 @@ function getMailSettings(settings) {
   };
 }
 
+function getResendSettings(settings) {
+  return {
+    apiKey: RESEND_API_KEY,
+    fromEmail: RESEND_FROM_EMAIL,
+    ccEmail: RESEND_CC_EMAIL || settings.smtp.ccEmail || settings.business.email,
+    replyTo: settings.business.email || settings.smtp.user || "",
+    companyName: settings.business.companyName || "Rechnungen"
+  };
+}
+
+function splitEmailList(value) {
+  return String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function isResendConfigured(resendSettings) {
+  return Boolean(resendSettings.apiKey && resendSettings.fromEmail);
+}
+
 function isMailConfigured(mailSettings) {
   return Boolean(
     mailSettings.enabled &&
@@ -1115,11 +1139,57 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
     };
   }
 
+  const resendSettings = getResendSettings(user.settings);
+  if (isResendConfigured(resendSettings)) {
+    const tokens = {
+      invoiceNumber: invoice.invoiceNumber,
+      customerName: invoice.customer.name,
+      companyName: user.settings.business.companyName
+    };
+
+    const attachments = [];
+    if (fileInfo.pdfBuffer) {
+      attachments.push({
+        filename: `${invoice.invoiceNumber}.pdf`,
+        content: fileInfo.pdfBuffer.toString("base64")
+      });
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendSettings.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: `"${resendSettings.companyName}" <${resendSettings.fromEmail}>`,
+        to: [invoice.customer.email],
+        cc: splitEmailList(resendSettings.ccEmail),
+        reply_to: resendSettings.replyTo || undefined,
+        subject: compileTemplate(user.settings.email.subjectTemplate, tokens),
+        text: compileTemplate(user.settings.email.bodyTemplate, tokens),
+        attachments
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(
+        `Resend-Versand fehlgeschlagen (${response.status})${errorText ? `: ${errorText}` : "."}`
+      );
+    }
+
+    return {
+      status: "sent",
+      message: `Rechnung an ${invoice.customer.email} gesendet.`
+    };
+  }
+
   const mailSettings = getMailSettings(user.settings);
   if (!isMailConfigured(mailSettings)) {
     return {
       status: "skipped",
-      message: "SMTP ist noch nicht vollständig konfiguriert."
+      message: "Weder Resend noch SMTP sind vollständig konfiguriert."
     };
   }
 
@@ -1503,7 +1573,7 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
 
     const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
     let emailResult;
-    if (deliveryMethod === "external-app") {
+    if (deliveryMethod === "external-app" && !isResendConfigured(getResendSettings(req.user.settings))) {
       emailResult = {
         status: "external-app",
         message: "Rechnung erstellt. Die Mail-App kann jetzt geöffnet werden."
@@ -1576,7 +1646,7 @@ app.post("/api/invoices/:id/resend", requireAuth, async (req, res, next) => {
 
     const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
     let emailResult;
-    if (deliveryMethod === "external-app") {
+    if (deliveryMethod === "external-app" && !isResendConfigured(getResendSettings(req.user.settings))) {
       if (!invoice.customer?.email) {
         emailResult = {
           status: "skipped",

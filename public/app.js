@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.4.6";
+const APP_VERSION = "V0.4.7";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",

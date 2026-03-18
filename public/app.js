@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.4.5";
+const APP_VERSION = "V0.4.6";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -2220,26 +2220,6 @@ function triggerFileDownload(file) {
 }
 
 async function openExternalMailApp(invoice) {
-  const draft = buildClientEmailDraft(invoice);
-  let pdfFile = null;
-
-  try {
-    pdfFile = await fetchInvoicePdfFile(invoice);
-  } catch {
-    pdfFile = null;
-  }
-
-  if (pdfFile) {
-    triggerFileDownload(pdfFile);
-    await new Promise((resolve) => {
-      window.setTimeout(() => {
-        window.location.href = buildMailtoLink(invoice);
-        resolve();
-      }, 450);
-    });
-    return "download+mailto";
-  }
-
   window.location.href = buildMailtoLink(invoice);
   return "mailto";
 }
@@ -2369,6 +2349,7 @@ async function sendInvoice() {
 
 async function shareInvoiceDraft() {
   shareInvoiceButton.disabled = true;
+  setLoading(true, "Rechnung wird zum Teilen vorbereitet...");
 
   try {
     const customer = selectedCustomer();
@@ -2424,6 +2405,7 @@ async function shareInvoiceDraft() {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
   } finally {
+    setLoading(false);
     shareInvoiceButton.disabled = false;
   }
 }
@@ -2454,6 +2436,8 @@ async function resendInvoice(invoiceId) {
 }
 
 async function shareExistingInvoice(invoiceId) {
+  setLoading(true, "Rechnung wird zum Teilen vorbereitet...");
+
   try {
     const invoice = state.invoices.find((entry) => entry.id === invoiceId);
     if (!invoice) {
@@ -2465,6 +2449,8 @@ async function shareExistingInvoice(invoiceId) {
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
+  } finally {
+    setLoading(false);
   }
 }
 

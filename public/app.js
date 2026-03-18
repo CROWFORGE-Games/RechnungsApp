@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.4.0";
+const APP_VERSION = "V0.4.2";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -74,6 +74,7 @@ const authSwitchModeButton = document.getElementById("authSwitchMode");
 const authUsernameInput = document.getElementById("authUsername");
 const authPasswordInput = document.getElementById("authPassword");
 const logoutButton = document.getElementById("logoutButton");
+const logoutButtonSettings = document.getElementById("logoutButtonSettings");
 const settingsAuthPasswordInput = document.getElementById("settingsAuthPassword");
 const toggleSettingsAuthPasswordButton = document.getElementById("toggleSettingsAuthPassword");
 const smtpPassInput = document.getElementById("smtpPass");
@@ -517,6 +518,7 @@ function closePanelsIfMobile() {
 function openSendDialog() {
   sendDialog.hidden = false;
   document.body.classList.add("panel-open");
+  document.body.classList.add("dialog-open");
   window.requestAnimationFrame(() => {
     sendDialog.scrollTop = 0;
     if (sendDialogCard) {
@@ -531,6 +533,7 @@ function openSendDialog() {
 function closeSendDialog() {
   sendDialog.hidden = true;
   signatureDialog.hidden = true;
+  document.body.classList.remove("dialog-open");
   if (authOverlay.hidden && state.openPanelId === null) {
     document.body.classList.remove("panel-open");
   }
@@ -539,6 +542,7 @@ function closeSendDialog() {
 function openSignatureDialog() {
   signatureDialog.hidden = false;
   document.body.classList.add("panel-open");
+  document.body.classList.add("dialog-open");
   window.requestAnimationFrame(() => {
     signatureDialog.scrollTop = 0;
     if (signatureDialogCard) {
@@ -549,6 +553,9 @@ function openSignatureDialog() {
 
 function closeSignatureDialog() {
   signatureDialog.hidden = true;
+  if (sendDialog.hidden && smtpInfoDialog.hidden && authOverlay.hidden) {
+    document.body.classList.remove("dialog-open");
+  }
   if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
@@ -557,10 +564,14 @@ function closeSignatureDialog() {
 function openSmtpInfoDialog() {
   smtpInfoDialog.hidden = false;
   document.body.classList.add("panel-open");
+  document.body.classList.add("dialog-open");
 }
 
 function closeSmtpInfoDialog() {
   smtpInfoDialog.hidden = true;
+  if (sendDialog.hidden && signatureDialog.hidden && authOverlay.hidden) {
+    document.body.classList.remove("dialog-open");
+  }
   if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden && signatureDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
@@ -592,7 +603,7 @@ function setAuthMode(mode = "login") {
   authModeKicker.textContent = "Anmeldung";
   authTitle.textContent = "Anmelden";
   authText.textContent =
-    "Mit einem vorhandenen Benutzer anmelden. Verf?gbar sind admin und kaindl_daniel, jeweils mit dem Kennwort admin."; /*
+    "Mit einem vorhandenen Benutzer anmelden. Verfügbar sind admin und kaindl_daniel, jeweils mit dem Kennwort admin."; /*
     : "Mit deinem Benutzer anmelden. Nach dem Login werden deine eigenen Daten auf jedem Gerät wieder geladen.";
   */ authSubmit.textContent = "Anmelden";
   return;
@@ -611,10 +622,14 @@ function setAuthMode(mode = "login") {
 function showAuthOverlay() {
   authOverlay.hidden = false;
   document.body.classList.add("panel-open");
+  document.body.classList.add("dialog-open");
 }
 
 function hideAuthOverlay() {
   authOverlay.hidden = true;
+  if (sendDialog.hidden && signatureDialog.hidden && smtpInfoDialog.hidden) {
+    document.body.classList.remove("dialog-open");
+  }
   if (state.openPanelId === null && sendDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
@@ -2155,10 +2170,6 @@ function triggerFileDownload(file) {
 
 async function openExternalMailApp(invoice) {
   const draft = buildClientEmailDraft(invoice);
-  const shareSupported =
-    typeof navigator !== "undefined" &&
-    typeof navigator.share === "function" &&
-    typeof navigator.canShare === "function";
   let pdfFile = null;
 
   try {
@@ -2167,26 +2178,14 @@ async function openExternalMailApp(invoice) {
     pdfFile = null;
   }
 
-  if (shareSupported && pdfFile) {
-    try {
-      if (navigator.canShare({ files: [pdfFile] })) {
-        await navigator.share({
-          title: draft.subject,
-          text: draft.body,
-          files: [pdfFile]
-        });
-        return "share";
-      }
-    } catch {
-      // Fallback unten
-    }
-  }
-
   if (pdfFile) {
     triggerFileDownload(pdfFile);
-    window.setTimeout(() => {
-      window.location.href = buildMailtoLink(invoice);
-    }, 250);
+    await new Promise((resolve) => {
+      window.setTimeout(() => {
+        window.location.href = buildMailtoLink(invoice);
+        resolve();
+      }, 450);
+    });
     return "download+mailto";
   }
 
@@ -2660,6 +2659,7 @@ function bindStaticEvents() {
   invoiceNotesInput.addEventListener("input", handleInvoiceMetaInput);
   authForm.addEventListener("submit", handleAuthSubmit);
   logoutButton?.addEventListener("click", handleLogout);
+  logoutButtonSettings?.addEventListener("click", handleLogout);
 }
 
 async function bootstrap() {
@@ -2711,6 +2711,7 @@ async function initializeApp() {
   }
   setLoading(true, "App wird vorbereitet...");
   document.body.classList.remove("panel-open");
+  document.body.classList.remove("dialog-open");
   try {
     await loadAuthState();
   } catch (error) {

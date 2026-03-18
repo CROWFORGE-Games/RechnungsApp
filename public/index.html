@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V0.4.0</div>
+          <div class="app-version" id="appVersion">V0.4.2</div>
         </div>
       </aside>
 
@@ -360,10 +360,6 @@
         <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
       </div>
 
-      <p class="panel-note">
-        Das SMTP-Passwort leer lassen, wenn das bisherige Passwort erhalten bleiben soll.
-      </p>
-
       <form id="settingsForm" class="form-grid settings-grid">
         <fieldset class="settings-section span-2">
           <legend>Benutzer</legend>
@@ -558,6 +554,7 @@
 
         <div class="actions span-2 panel-form-actions">
           <button class="primary" type="submit">Einstellungen speichern</button>
+          <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
       </form>
     </aside>

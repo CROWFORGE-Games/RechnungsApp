@@ -1171,7 +1171,7 @@ body.panel-open {
     border-right: 0;
     border-bottom: 0;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 248, 243, 0.96)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(245, 250, 247, 0.99)),
       linear-gradient(180deg, rgba(63, 138, 90, 0.1), transparent);
     box-shadow: 0 -14px 36px rgba(24, 49, 38, 0.16);
   }
@@ -1222,6 +1222,16 @@ body.panel-open {
     padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
     border-radius: 26px 26px 0 0;
     overflow-y: auto;
+  }
+
+  .dialog-card .side-panel__head {
+    position: sticky;
+    top: calc(-18px - env(safe-area-inset-top));
+    z-index: 6;
+    margin: calc(-18px - env(safe-area-inset-top)) -16px 16px;
+    padding: calc(18px + env(safe-area-inset-top)) 16px 12px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 255, 255, 0.94));
+    backdrop-filter: blur(10px);
   }
 
   .invoice-toolbar,
@@ -1391,6 +1401,15 @@ body.panel-open {
     backdrop-filter: blur(10px);
   }
 
+  .logout-inline-button {
+    background: rgba(176, 68, 68, 0.12);
+    color: var(--danger);
+  }
+
+  .logout-inline-button:hover {
+    background: rgba(176, 68, 68, 0.18);
+  }
+
   .history-item {
     padding: 12px 14px;
   }
@@ -1523,6 +1542,11 @@ body.panel-open {
     padding: calc(14px + env(safe-area-inset-top)) 14px 12px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92));
     backdrop-filter: blur(10px);
+  }
+
+  body.dialog-open .tool-rail {
+    transform: translateY(calc(100% + env(safe-area-inset-bottom) + 16px));
+    pointer-events: none;
   }
 
   .auth-overlay {

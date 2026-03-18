@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { promises as fs } from "node:fs";
+import { existsSync, readFileSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_ASSET_DIR = path.join(PUBLIC_DIR, "assets");
+const IMPORT_DIR = path.join(__dirname, "google-sheets-sync", "import");
 const IS_NETLIFY = process.env.NETLIFY === "true";
 const STORAGE_ROOT = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
@@ -36,6 +37,7 @@ const LOGO_KEYS = {
 };
 const PRESET_USERS = [
   { username: "admin", password: "admin0789" },
+  { username: "kaindl_daniel", password: "admin" },
   { username: "test_user", password: "admin" }
 ];
 
@@ -186,6 +188,109 @@ function createTestUserSeedPayload() {
         taxRate: 20
       }
     ]
+  };
+}
+
+function parseCsvLine(line = "") {
+  const values = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"') {
+      if (insideQuotes && nextChar === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !insideQuotes) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function parseCsvFile(filePath) {
+  if (!existsSync(filePath)) {
+    return [];
+  }
+
+  const raw = readFileSync(filePath, "utf8");
+  const normalized = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) {
+    return [];
+  }
+
+  const header = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return header.reduce((entry, key, index) => {
+      entry[key] = values[index] ?? "";
+      return entry;
+    }, {});
+  });
+}
+
+function loadImportedUserSeed(username) {
+  const userDir = path.join(IMPORT_DIR, username);
+  const userRows = parseCsvFile(path.join(userDir, "User.csv"));
+  const customerRows = parseCsvFile(path.join(userDir, "Kunden.csv"));
+  const articleRows = parseCsvFile(path.join(userDir, "Artikel.csv"));
+
+  if (!userRows.length && !customerRows.length && !articleRows.length) {
+    return null;
+  }
+
+  const settingsJson = String(userRows[0]?.settings_json || "").trim();
+  let importedSettings = {};
+  try {
+    importedSettings = settingsJson ? JSON.parse(settingsJson) : {};
+  } catch (error) {
+    console.error(`Import-Settings für ${username} konnten nicht gelesen werden.`, error);
+  }
+
+  const customers = customerRows
+    .map((row) => {
+      try {
+        return sanitizeCustomer(JSON.parse(String(row.payload_json || "{}")));
+      } catch (error) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  const articles = articleRows
+    .map((row) => {
+      try {
+        return sanitizeArticle(JSON.parse(String(row.payload_json || "{}")));
+      } catch (error) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  return {
+    settings: mergeSettings(importedSettings),
+    customers,
+    articles
   };
 }
 
@@ -369,7 +474,7 @@ function createUserRecord({
 }
 
 function applySeedDataIfNeeded(user) {
-  if (!["admin", "test_user"].includes(user.username)) {
+  if (!["admin", "kaindl_daniel", "test_user"].includes(user.username)) {
     return user;
   }
 
@@ -384,7 +489,16 @@ function applySeedDataIfNeeded(user) {
   }
 
   const seed =
-    user.username === "admin" ? createAdminSeedPayload() : createTestUserSeedPayload();
+    user.username === "admin"
+      ? createAdminSeedPayload()
+      : user.username === "kaindl_daniel"
+        ? loadImportedUserSeed("kaindl_daniel")
+        : createTestUserSeedPayload();
+
+  if (!seed) {
+    return user;
+  }
+
   return createUserRecord({
     ...user,
     settings: seed.settings,

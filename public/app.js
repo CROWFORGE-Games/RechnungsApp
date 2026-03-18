@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.4.2";
+const APP_VERSION = "V0.4.4";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -88,12 +88,14 @@ const invoiceLogoFileInput = document.getElementById("invoiceLogoFile");
 const appLogoFileInput = document.getElementById("appLogoFile");
 const appFavicon = document.getElementById("appFavicon");
 const appleTouchIcon = document.getElementById("appleTouchIcon");
+const appManifest = document.getElementById("appManifest");
 const bannerLogoImages = [...document.querySelectorAll("[data-banner-logo]")];
 const appLogoImages = [...document.querySelectorAll("[data-app-logo]")];
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
 const sendInvoiceButton = document.getElementById("sendInvoiceButton");
+const shareInvoiceButton = document.getElementById("shareInvoiceButton");
 const sendPreviewCanvas = document.getElementById("sendPreviewCanvas");
 const sendPreviewContext = sendPreviewCanvas.getContext("2d");
 const sendDialogCard = sendDialog.querySelector(".dialog-card");
@@ -259,6 +261,22 @@ function formatCurrency(value) {
     style: "currency",
     currency: "EUR"
   }).format(toNumber(value));
+}
+
+function formatTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("de-AT", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function formatAmount(value) {
@@ -993,6 +1011,9 @@ function refreshBrandAssets() {
   if (appleTouchIcon) {
     appleTouchIcon.href = `${BRAND_ASSET_URLS.app}${stamp}`;
   }
+  if (appManifest) {
+    appManifest.href = `/api/manifest.webmanifest${stamp}`;
+  }
   logoState.loaded = false;
   logoState.image = null;
 }
@@ -1498,18 +1519,25 @@ function renderInvoiceHistory() {
     .slice(0, 8)
     .map((invoice) => {
       const emailMessage = invoice.email?.message || "Noch kein Versandstatus";
-      const pdfUrl = buildAuthenticatedFileUrl(invoice.files?.pdfUrl);
       const fileLink = invoice.files?.pdfUrl
         ? `<a href="${escapeHtml(invoice.files.pdfUrl)}" target="_blank" rel="noreferrer">PDF öffnen</a>`
         : "";
+      const createdTime = formatTime(invoice.createdAt);
 
       return `
         <article class="history-item">
-          <strong>${escapeHtml(invoice.invoiceNumber)}</strong>
+          <div class="history-item__head">
+            <strong>${escapeHtml(invoice.invoiceNumber)}</strong>
+            ${createdTime ? `<span class="history-item__time">${escapeHtml(createdTime)}</span>` : ""}
+          </div>
           <p>${escapeHtml(invoice.customer?.name || "Unbekannter Kunde")}</p>
           <p>${escapeHtml(formatCurrency(invoice.totals?.grossTotal || 0))}</p>
           <p>${escapeHtml(emailMessage)}</p>
-          ${fileLink}
+          <div class="history-item__actions">
+            ${fileLink}
+            <button class="secondary" type="button" data-resend-invoice="${escapeHtml(invoice.id)}">Erneut senden</button>
+            <button class="ghost" type="button" data-share-invoice="${escapeHtml(invoice.id)}">Teilen</button>
+          </div>
         </article>
       `;
     })
@@ -1654,12 +1682,17 @@ async function renderCanvas() {
   canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillText("Kundeninfo", 446, 180);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
-  [
-    `Kunden-Nr.:   ${customer?.customerNumber || "-"}`,
-    `Telefon:      ${customer?.phone || business.phone || "-"}`,
-    `eMail:        ${customer?.email || "-"}`,
-    `UID-Nr.:      ${customer?.uid || business.uid || "-"}`
-  ].forEach((line, index) => {
+  const customerInfoLines = [`Kunden-Nr.:   ${customer?.customerNumber || "-"}`];
+  if (customer?.phone) {
+    customerInfoLines.push(`Telefon:      ${customer.phone}`);
+  }
+  if (customer?.email) {
+    customerInfoLines.push(`eMail:        ${customer.email}`);
+  }
+  if (customer?.uid) {
+    customerInfoLines.push(`UID-Nr.:      ${customer.uid}`);
+  }
+  customerInfoLines.forEach((line, index) => {
     canvasContext.fillText(line, 446, 212 + index * 22);
   });
 
@@ -2135,6 +2168,23 @@ function buildMailtoLink(invoice) {
   return `mailto:${recipient}?${params.join("&")}`;
 }
 
+function buildInvoiceRequestPayload(deliveryMethod = "external-app") {
+  return {
+    customerId: state.invoiceDraft.customerId,
+    issueDate: state.invoiceDraft.issueDate,
+    dueDate: state.invoiceDraft.dueDate,
+    reference: state.invoiceDraft.reference,
+    notes: state.invoiceDraft.notes,
+    title: state.settings?.invoice?.title || "Rechnung",
+    items: state.invoiceDraft.items.map((item) => ({
+      ...item,
+      unit: String(item.unit || "Stunden").trim()
+    })),
+    imageDataUrl: null,
+    deliveryMethod
+  };
+}
+
 async function fetchInvoicePdfFile(invoice) {
   const pdfUrl = buildAuthenticatedFileUrl(invoice.files?.pdfUrl);
   if (!pdfUrl) {
@@ -2193,6 +2243,30 @@ async function openExternalMailApp(invoice) {
   return "mailto";
 }
 
+async function shareInvoiceFile(invoice) {
+  const pdfFile = await fetchInvoicePdfFile(invoice);
+  if (!pdfFile) {
+    throw new Error("PDF konnte nicht geladen werden.");
+  }
+
+  const shareSupported =
+    typeof navigator !== "undefined" &&
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function";
+
+  if (shareSupported && navigator.canShare({ files: [pdfFile] })) {
+    await navigator.share({
+      title: `Rechnung ${invoice.invoiceNumber}`,
+      text: buildClientEmailDraft(invoice).body,
+      files: [pdfFile]
+    });
+    return "share";
+  }
+
+  triggerFileDownload(pdfFile);
+  return "download";
+}
+
 function isSmtpEnabled() {
   return Boolean(state.settings?.smtp?.enabled);
 }
@@ -2247,22 +2321,12 @@ async function sendInvoice() {
     await renderCanvas();
     refreshSendPreview();
 
+    const payload = buildInvoiceRequestPayload(isSmtpEnabled() ? "smtp" : "external-app");
+    payload.imageDataUrl = await canvasToPngDataUrl(invoiceCanvas);
+
     const response = await api("/api/invoices", {
       method: "POST",
-      body: JSON.stringify({
-        customerId: state.invoiceDraft.customerId,
-        issueDate: state.invoiceDraft.issueDate,
-        dueDate: state.invoiceDraft.dueDate,
-        reference: state.invoiceDraft.reference,
-        notes: state.invoiceDraft.notes,
-        title: state.settings?.invoice?.title || "Rechnung",
-        items: state.invoiceDraft.items.map((item) => ({
-          ...item,
-          unit: String(item.unit || "Stunden").trim()
-        })),
-        imageDataUrl: await canvasToPngDataUrl(invoiceCanvas),
-        deliveryMethod: isSmtpEnabled() ? "smtp" : "external-app"
-      })
+      body: JSON.stringify(payload)
     });
 
     state.invoices = [response.invoice, ...state.invoices];
@@ -2299,6 +2363,83 @@ async function sendInvoice() {
   } finally {
     sendInvoiceButton.disabled = false;
     sendInvoiceButton.textContent = "Senden";
+  }
+}
+
+async function shareInvoiceDraft() {
+  shareInvoiceButton.disabled = true;
+
+  try {
+    const customer = selectedCustomer();
+    if (!customer) {
+      showInvoiceDraftWarning("Bitte zuerst einen Kunden auswählen.");
+      return;
+    }
+
+    const validItems = getValidInvoiceItems();
+    if (!validItems.length) {
+      showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst eine Leistung eintragen.");
+      return;
+    }
+
+    await renderCanvas();
+    refreshSendPreview();
+
+    const payload = buildInvoiceRequestPayload("share-preview");
+    payload.imageDataUrl = await canvasToPngDataUrl(invoiceCanvas);
+
+    const response = await api("/api/invoices/share-preview", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    await shareInvoiceFile(response.invoice);
+    setStatus("Rechnung wurde zum Teilen vorbereitet.", "success");
+  } catch (error) {
+    setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
+    window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
+  } finally {
+    shareInvoiceButton.disabled = false;
+  }
+}
+
+async function resendInvoice(invoiceId) {
+  try {
+    const response = await api(`/api/invoices/${invoiceId}/resend`, {
+      method: "POST",
+      body: JSON.stringify({
+        deliveryMethod: isSmtpEnabled() ? "smtp" : "external-app"
+      })
+    });
+
+    state.invoices = state.invoices.map((entry) => (entry.id === response.invoice.id ? response.invoice : entry));
+    renderInvoiceHistory();
+
+    if (response.email?.status === "external-app" && response.invoice) {
+      await openExternalMailApp(response.invoice);
+    } else if (response.email?.status && response.email.status !== "sent") {
+      window.alert(response.email.message || "Erneutes Senden fehlgeschlagen.");
+    }
+
+    setStatus(response.email?.message || "Rechnung wurde erneut vorbereitet.", "success");
+  } catch (error) {
+    setStatus(error.message || "Rechnung konnte nicht erneut gesendet werden.", "error");
+    window.alert(error.message || "Rechnung konnte nicht erneut gesendet werden.");
+  }
+}
+
+async function shareExistingInvoice(invoiceId) {
+  try {
+    const invoice = state.invoices.find((entry) => entry.id === invoiceId);
+    if (!invoice) {
+      throw new Error("Rechnung nicht gefunden.");
+    }
+
+    await shareInvoiceFile(invoice);
+    setStatus("Rechnung wurde zum Teilen geöffnet.", "success");
+  } catch (error) {
+    setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
+    window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
   }
 }
 
@@ -2591,6 +2732,7 @@ function bindDialogs() {
   });
   clearSignatureButton.addEventListener("click", clearSignaturePad);
   sendInvoiceButton.addEventListener("click", sendInvoice);
+  shareInvoiceButton?.addEventListener("click", shareInvoiceDraft);
   openSmtpInfoButton?.addEventListener("click", openSmtpInfoDialog);
   closeSmtpInfoDialogButton?.addEventListener("click", closeSmtpInfoDialog);
   confirmSmtpInfoDialogButton?.addEventListener("click", closeSmtpInfoDialog);
@@ -2641,6 +2783,18 @@ function bindStaticEvents() {
   });
   customersTable.addEventListener("click", handleCustomerTableClick);
   articlesTable.addEventListener("click", handleArticleTableClick);
+  invoiceHistory.addEventListener("click", async (event) => {
+    const resendButton = event.target.closest("[data-resend-invoice]");
+    if (resendButton) {
+      await resendInvoice(resendButton.dataset.resendInvoice);
+      return;
+    }
+
+    const shareButton = event.target.closest("[data-share-invoice]");
+    if (shareButton) {
+      await shareExistingInvoice(shareButton.dataset.shareInvoice);
+    }
+  });
   invoiceItemsTable.addEventListener("input", handleInvoiceTableInput);
   invoiceItemsTable.addEventListener("change", handleInvoiceTableChange);
   invoiceItemsTable.addEventListener("click", handleInvoiceTableClick);

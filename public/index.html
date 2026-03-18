@@ -10,7 +10,7 @@
     <title>Rechnungen</title>
     <link id="appFavicon" rel="icon" href="/api/assets/logo/app" type="image/png" />
     <link id="appleTouchIcon" rel="apple-touch-icon" href="/api/assets/logo/app" />
-    <link rel="manifest" href="/api/manifest.webmanifest" />
+    <link id="appManifest" rel="manifest" href="/api/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V0.4.2</div>
+          <div class="app-version" id="appVersion">V0.4.4</div>
         </div>
       </aside>
 
@@ -577,7 +577,10 @@
           <button class="secondary action-with-icon action-with-icon--signature" id="openSignatureDialog" type="button">
             Unterschrift
           </button>
-          <button class="primary" id="sendInvoiceButton" type="button">Senden</button>
+          <div class="dialog-actions__primary">
+            <button class="primary" id="sendInvoiceButton" type="button">Senden</button>
+            <button class="ghost share-only-button" id="shareInvoiceButton" type="button" aria-label="Teilen" title="Teilen"></button>
+          </div>
         </div>
       </div>
     </div>

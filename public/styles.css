@@ -980,11 +980,37 @@ th {
   margin-top: 18px;
 }
 
+.dialog-actions__primary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .dialog-actions .primary,
 .dialog-actions .secondary,
 .dialog-actions .ghost {
   min-width: 156px;
   justify-content: center;
+}
+
+.share-only-button {
+  min-width: 54px !important;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border-radius: 16px;
+}
+
+.share-only-button::before {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 0 auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232f6f66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.59 13.51 15.42 17.49'/%3E%3Cpath d='M15.41 6.51 8.59 10.49'/%3E%3C/svg%3E");
 }
 
 .action-with-icon {
@@ -1018,6 +1044,20 @@ th {
   border: 1px solid rgba(39, 84, 56, 0.08);
 }
 
+.history-item__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.history-item__time {
+  color: var(--muted);
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
 .history-item p {
   margin: 0;
   color: var(--muted);
@@ -1032,6 +1072,18 @@ th {
   color: var(--accent-cool);
   font-weight: 700;
   text-decoration: none;
+}
+
+.history-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.history-item__actions .ghost,
+.history-item__actions .secondary {
+  min-width: 0;
 }
 
 .settings-section {
@@ -1392,6 +1444,15 @@ body.panel-open {
     justify-content: center;
   }
 
+  .dialog-actions__primary {
+    width: 100%;
+  }
+
+  .share-only-button {
+    width: 54px !important;
+    flex: 0 0 54px;
+  }
+
   .panel-form-actions {
     position: sticky;
     bottom: 0;
@@ -1412,6 +1473,12 @@ body.panel-open {
 
   .history-item {
     padding: 12px 14px;
+  }
+
+  .history-item__head,
+  .history-item__actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .table-wrap {

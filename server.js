@@ -992,6 +992,69 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   };
 }
 
+async function rebuildInvoiceFilesFromStoredPng(user, invoice) {
+  const storedPngName = String(invoice.files?.pngName || "").trim();
+  if (!storedPngName) {
+    throw new Error("Für diese Rechnung ist kein Vorschau-PNG vorhanden.");
+  }
+
+  const pngBuffer = await readGeneratedFile(storedPngName);
+  if (!pngBuffer?.length) {
+    throw new Error("Das Vorschau-PNG der Rechnung konnte nicht geladen werden.");
+  }
+
+  const pdfBuffer = await withRetry(async () => {
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    const image = await pdfDoc.embedPng(pngBuffer);
+    const dimensions = image.scaleToFit(page.getWidth(), page.getHeight());
+    page.drawImage(image, {
+      x: (page.getWidth() - dimensions.width) / 2,
+      y: (page.getHeight() - dimensions.height) / 2,
+      width: dimensions.width,
+      height: dimensions.height
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    const rebuiltPdfBuffer = Buffer.from(pdfBytes);
+    if (!rebuiltPdfBuffer.length) {
+      throw new Error("PDF-Daten der Rechnung sind leer.");
+    }
+    return rebuiltPdfBuffer;
+  }, 3, 200);
+
+  const pdfName = `${user.id}_${invoice.invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_") + ".pdf";
+  const pdfKey = `generated/${pdfName}`;
+
+  if (IS_NETLIFY) {
+    const stored = await withRetry(
+      () => writeBlobBinary(pdfKey, pdfBuffer, "application/pdf"),
+      3,
+      200
+    );
+    if (stored) {
+      return {
+        pdfName,
+        pdfUrl: `/api/files/generated/${pdfName}`,
+        pngName: storedPngName,
+        pngUrl: invoice.files?.pngUrl || `/api/files/generated/${storedPngName}`,
+        pdfBuffer
+      };
+    }
+  }
+
+  await fs.mkdir(GENERATED_DIR, { recursive: true });
+  await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer), 3, 200);
+
+  return {
+    pdfName,
+    pdfUrl: `/api/files/generated/${pdfName}`,
+    pngName: storedPngName,
+    pngUrl: invoice.files?.pngUrl || `/api/files/generated/${storedPngName}`,
+    pdfBuffer
+  };
+}
+
 function getManifestPayload() {
   return {
     name: "Rechnungen",
@@ -1141,6 +1204,7 @@ function buildInvoiceRecord(user, payload) {
 }
 
 app.get("/api/manifest.webmanifest", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   res.type("application/manifest+json").send(JSON.stringify(getManifestPayload()));
 });
 
@@ -1464,6 +1528,69 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
       invoice: serializeInvoiceForClient(invoice, req.session.token),
       email: emailResult,
       settings: getUserSettingsForClient(req.user)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
+  try {
+    const invoice = buildInvoiceRecord(req.user, req.body || {});
+    const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl);
+    invoice.files = sanitizeStoredFileInfo(fileInfo);
+
+    res.status(201).json({
+      invoice: serializeInvoiceForClient(invoice, req.session.token)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/invoices/:id/resend", requireAuth, async (req, res, next) => {
+  try {
+    const invoice = req.user.invoices.find((entry) => entry.id === req.params.id);
+    if (!invoice) {
+      res.status(404).json({ error: "Rechnung nicht gefunden." });
+      return;
+    }
+
+    const fileInfo = await rebuildInvoiceFilesFromStoredPng(req.user, invoice);
+    invoice.files = sanitizeStoredFileInfo(fileInfo);
+
+    const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
+    let emailResult;
+    if (deliveryMethod === "external-app") {
+      if (!invoice.customer?.email) {
+        emailResult = {
+          status: "skipped",
+          message: "Kunde hat keine E-Mail-Adresse hinterlegt."
+        };
+      } else {
+        emailResult = {
+          status: "external-app",
+          message: "Rechnung wurde erneut vorbereitet. Die Mail-App kann jetzt geöffnet werden."
+        };
+      }
+    } else {
+      try {
+        emailResult = await sendInvoiceEmail(req.user, invoice, fileInfo);
+      } catch (error) {
+        emailResult = {
+          status: "failed",
+          message: error.message || "Mailversand fehlgeschlagen."
+        };
+      }
+    }
+
+    invoice.email = emailResult;
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
+
+    res.json({
+      invoice: serializeInvoiceForClient(invoice, req.session.token),
+      email: emailResult
     });
   } catch (error) {
     next(error);

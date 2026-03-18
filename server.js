@@ -908,8 +908,39 @@ function remoteDataNeedsBackfill(user, remoteData = {}) {
   const localArticleCount = Array.isArray(user?.articles) ? user.articles.length : 0;
   const remoteCustomerCount = Array.isArray(remoteData?.customers) ? remoteData.customers.length : 0;
   const remoteArticleCount = Array.isArray(remoteData?.articles) ? remoteData.articles.length : 0;
+  const localBusiness = user?.settings?.business || {};
+  const remoteBusiness = remoteData?.settings?.business || {};
+  const localBusinessFilled = [
+    localBusiness.companyName,
+    localBusiness.senderLine,
+    localBusiness.addressLine1,
+    localBusiness.postalCode,
+    localBusiness.city,
+    localBusiness.phone,
+    localBusiness.email,
+    localBusiness.uid,
+    localBusiness.iban,
+    localBusiness.bic,
+    localBusiness.bankName,
+    localBusiness.issuerName
+  ].some((value) => String(value || "").trim());
+  const remoteBusinessFilled = [
+    remoteBusiness.companyName,
+    remoteBusiness.senderLine,
+    remoteBusiness.addressLine1,
+    remoteBusiness.postalCode,
+    remoteBusiness.city,
+    remoteBusiness.phone,
+    remoteBusiness.email,
+    remoteBusiness.uid,
+    remoteBusiness.iban,
+    remoteBusiness.bic,
+    remoteBusiness.bankName,
+    remoteBusiness.issuerName
+  ].some((value) => String(value || "").trim());
 
   return (
+    (localBusinessFilled && !remoteBusinessFilled) ||
     (localCustomerCount > 0 && remoteCustomerCount < localCustomerCount) ||
     (localArticleCount > 0 && remoteArticleCount < localArticleCount)
   );
@@ -1755,16 +1786,18 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
     await hydrateUserFromGoogleSheets(req.store, req.user);
-    if (req.user.username === "admin") {
+    const isAdmin = req.user.username === "admin";
+    if (isAdmin) {
       await backfillImportedUsersToGoogleSheets(req.store);
     }
-    const adminUsers = req.user.username === "admin" ? await buildAdminUsersResponse(req.store) : [];
+    const adminUsers = isAdmin ? await buildAdminUsersResponse(req.store) : [];
     res.json({
+      isAdmin,
       settings: getUserSettingsForClient(req.user),
-      customers: req.user.customers,
-      articles: req.user.articles,
+      customers: isAdmin ? [] : req.user.customers,
+      articles: isAdmin ? [] : req.user.articles,
       adminUsers,
-      invoices: [...req.user.invoices]
+      invoices: [...(isAdmin ? [] : req.user.invoices)]
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((invoice) => serializeInvoiceForClient(invoice, req.session.token))
     });

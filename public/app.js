@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.2";
+const APP_VERSION = "V1.0.3";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -539,6 +539,11 @@ function setLoading(active, message = "Lade Daten...") {
   }
 
   loadingOverlay.hidden = !active;
+}
+
+async function updateLoadingStep(message) {
+  setLoading(true, message);
+  await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
 function setActiveRail(targetPanelId = null) {
@@ -3400,20 +3405,33 @@ function bindStaticEvents() {
 }
 
 async function bootstrap() {
-  setLoading(true, "Kunden, Leistungen und Einstellungen werden geladen...");
+  setLoading(true, "Verbindung wird hergestellt...");
   try {
     setStatus("Lade Daten...");
+    await updateLoadingStep("Benutzerdaten werden geladen...");
     const response = await api("/api/bootstrap");
+    const adminMode = Boolean(response.isAdmin);
+    await updateLoadingStep("Einstellungen werden geladen...");
     state.settings = response.settings;
     state.adminUsers = response.adminUsers || [];
-    state.customers = sortByNumericField(response.customers || [], "customerNumber");
-    state.articles = sortByNumericField((response.articles || []).map(normalizeArticle), "number");
-    state.invoices = response.invoices || [];
+    if (adminMode) {
+      state.customers = [];
+      state.articles = [];
+      state.invoices = [];
+    } else {
+      await updateLoadingStep("Kunden werden geladen...");
+      state.customers = sortByNumericField(response.customers || [], "customerNumber");
+      await updateLoadingStep("Leistungen werden geladen...");
+      state.articles = sortByNumericField((response.articles || []).map(normalizeArticle), "number");
+      await updateLoadingStep("Rechnungen werden geladen...");
+      state.invoices = response.invoices || [];
+    }
 
     if (!state.invoiceDraft.customerId) {
       state.invoiceDraft.customerId = state.customers[0]?.id || "";
     }
 
+    await updateLoadingStep(adminMode ? "Benutzerverwaltung wird vorbereitet..." : "Oberfläche wird vorbereitet...");
     populateSettingsForm();
     applyRoleBasedUi();
     refreshBrandAssets();
@@ -3426,6 +3444,7 @@ async function bootstrap() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     renderInvoiceHistory();
+    await updateLoadingStep(adminMode ? "Admin-Oberfläche wird gerendert..." : "Rechnungsvorschau wird aufgebaut...");
     await renderCanvas();
     if (logoutButton) {
       logoutButton.hidden = false;

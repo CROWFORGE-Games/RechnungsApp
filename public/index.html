@@ -29,17 +29,17 @@
         </div>
 
         <div class="tool-rail__actions">
-          <button class="rail-button is-active" type="button" data-focus-main>
+          <button class="rail-button is-active" id="mainRailButton" type="button" data-focus-main>
             <span class="rail-icon rail-icon--invoice" aria-hidden="true"></span>
-            <span class="rail-label">Rechnungen</span>
+            <span class="rail-label" id="mainRailLabel">Rechnungen</span>
           </button>
-          <button class="rail-button" type="button" data-open-panel="customersPanel">
+          <button class="rail-button" id="customersRailButton" type="button" data-open-panel="customersPanel">
             <span class="rail-icon rail-icon--customers" aria-hidden="true"></span>
-            <span class="rail-label">Kunde hinzufügen</span>
+            <span class="rail-label" id="customersRailLabel">Kunde hinzufügen</span>
           </button>
-          <button class="rail-button" type="button" data-open-panel="articlesPanel">
+          <button class="rail-button" id="articlesRailButton" type="button" data-open-panel="articlesPanel">
             <span class="rail-icon rail-icon--articles" aria-hidden="true"></span>
-            <span class="rail-label">Artikel hinzufügen</span>
+            <span class="rail-label" id="articlesRailLabel">Artikel hinzufügen</span>
           </button>
           <button class="rail-button" type="button" data-open-panel="settingsPanel">
             <span class="rail-icon rail-icon--settings" aria-hidden="true"></span>
@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V0.5.0</div>
+          <div class="app-version" id="appVersion">V1.0.0</div>
         </div>
       </aside>
 
@@ -133,6 +133,48 @@
               </div>
               <div id="invoiceHistory" class="history-list"></div>
             </div>
+          </div>
+        </section>
+
+        <section class="main-card" id="adminMainArea" hidden>
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Admin</p>
+              <h2>Benutzerverwaltung</h2>
+            </div>
+            <p class="section-note">
+              Hier legst du neue Benutzer an, änderst das Standardpasswort und setzt Benutzerkennwörter bei Bedarf zurück.
+            </p>
+          </div>
+
+          <form id="adminUserForm" class="form-grid compact-grid admin-user-form">
+            <label>
+              Neuer Benutzername
+              <input id="adminNewUsername" name="username" type="text" autocomplete="off" placeholder="z. B. max_muster" />
+            </label>
+            <label>
+              Standardkennwort
+              <input id="adminDefaultPassword" name="defaultPassword" type="text" autocomplete="off" value="admin" />
+            </label>
+            <div class="actions span-2 panel-form-actions">
+              <button class="primary" type="submit">Benutzer anlegen</button>
+              <button class="ghost" id="saveAdminDefaultPassword" type="button">Standardkennwort speichern</button>
+            </div>
+          </form>
+
+          <div class="table-wrap panel-table admin-users-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Benutzer</th>
+                  <th>Firma</th>
+                  <th>Daten</th>
+                  <th>Zuletzt online</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersTable"></tbody>
+            </table>
           </div>
         </section>
       </main>
@@ -352,7 +394,7 @@
       <div class="side-panel__head">
         <div>
           <p class="section-kicker">Einstellungen</p>
-          <h2>Firma, Bank und E-Mail</h2>
+          <h2 id="settingsPanelTitle">Firma, Bank und E-Mail</h2>
         </div>
         <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
       </div>
@@ -391,7 +433,7 @@
           </div>
         </fieldset>
 
-        <fieldset class="settings-section span-2">
+        <fieldset class="settings-section span-2" data-admin-hidden-section="business">
           <legend>Firma</legend>
           <div class="settings-section__grid">
             <label>
@@ -441,7 +483,7 @@
           </div>
         </fieldset>
 
-        <fieldset class="settings-section span-2">
+        <fieldset class="settings-section span-2" data-admin-hidden-section="invoice">
           <legend>Bank und Rechnung</legend>
           <div class="settings-section__grid">
             <label>
@@ -479,7 +521,7 @@
           </div>
         </fieldset>
 
-        <fieldset class="settings-section span-2">
+        <fieldset class="settings-section span-2" data-admin-hidden-section="email-smtp">
           <legend>E-Mail und SMTP</legend>
           <div class="settings-section__grid">
             <label class="span-2">
@@ -571,7 +613,7 @@
           <button class="primary" type="submit">Einstellungen speichern</button>
           <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V0.5.0</span></div>
+        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.0</span></div>
       </form>
     </aside>
 

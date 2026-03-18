@@ -35,6 +35,15 @@ function doPost(e) {
       return jsonResponse({ ok: true });
     }
 
+    if (payload.action === 'listUsers') {
+      return jsonResponse({ ok: true, users: listUsers_() });
+    }
+
+    if (payload.action === 'deleteUserData') {
+      deleteUserData_(String(payload.username || '').trim());
+      return jsonResponse({ ok: true });
+    }
+
     return jsonResponse({ ok: false, error: 'Unknown action' }, 400);
   } catch (error) {
     return jsonResponse({ ok: false, error: error.message || 'Unexpected error' }, 500);
@@ -120,6 +129,34 @@ function upsertUserData_(username, data) {
     JSON.stringify(entry),
     timestamp
   ]));
+}
+
+function listUsers_() {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const userSheet = spreadsheet.getSheetByName(SHEETS.users.name);
+  const userRows = getDataRows_(userSheet);
+
+  return userRows
+    .filter((row) => String(row[0] || '').trim())
+    .map((row) => ({
+      username: String(row[0] || '').trim(),
+      updatedAt: String(row[2] || '').trim()
+    }));
+}
+
+function deleteUserData_(username) {
+  if (!username) {
+    throw new Error('Username missing');
+  }
+
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const userSheet = spreadsheet.getSheetByName(SHEETS.users.name);
+  const customerSheet = spreadsheet.getSheetByName(SHEETS.customers.name);
+  const articleSheet = spreadsheet.getSheetByName(SHEETS.articles.name);
+
+  replaceRowsByUsername_(userSheet, username, []);
+  replaceRowsByUsername_(customerSheet, username, []);
+  replaceRowsByUsername_(articleSheet, username, []);
 }
 
 function upsertSingleRow_(sheet, username, rowValues) {

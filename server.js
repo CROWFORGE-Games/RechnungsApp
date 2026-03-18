@@ -35,8 +35,8 @@ const LOGO_KEYS = {
   app: "app"
 };
 const PRESET_USERS = [
-  { username: "admin", password: "admin" },
-  { username: "kaindl_daniel", password: "admin" }
+  { username: "admin", password: "admin0789" },
+  { username: "test_user", password: "admin" }
 ];
 
 function createAdminSeedPayload() {
@@ -114,6 +114,81 @@ function createAdminSeedPayload() {
   };
 }
 
+function createTestUserSeedPayload() {
+  return {
+    settings: {
+      business: {
+        companyName: "Test User Firma",
+        senderLine: "Abs.: Test User Firma | Testweg 2 | 6335 Thiersee",
+        addressLine1: "Testweg 2",
+        addressLine2: "",
+        postalCode: "6335",
+        city: "Thiersee",
+        country: "Oesterreich",
+        phone: "+43 660 111111",
+        email: "contact@crowforge-games.com",
+        uid: "",
+        iban: "",
+        bic: "",
+        bankName: "",
+        issuerName: "Test User",
+        paymentNote: "Faellig innerhalb von 14 Tagen ohne Abzug.",
+        footerNote: "Bitte gib bei der Ueberweisung die Rechnungsnummer an."
+      },
+      smtp: {
+        enabled: false,
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        user: "",
+        pass: "",
+        fromEmail: "",
+        ccEmail: ""
+      },
+      branding: {
+        hasInvoiceLogo: false,
+        hasAppLogo: false
+      },
+      invoice: {
+        title: "Rechnung",
+        counterYear: new Date().getFullYear(),
+        counterValue: 0
+      },
+      email: {
+        subjectTemplate: "Rechnung {{invoiceNumber}}",
+        bodyTemplate:
+          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Gruesse\n{{companyName}}"
+      }
+    },
+    customers: [
+      {
+        customerNumber: "10001",
+        name: "CROWFORGE Games",
+        contactPerson: "Mathias Mayrhofer",
+        street: "Testweg 8",
+        postalCode: "6335",
+        city: "Thiersee",
+        country: "Oesterreich",
+        phone: "+43 660 000000",
+        email: "contact@crowforge-games.com",
+        uid: "",
+        notes: "Testkunde fuer test_user."
+      }
+    ],
+    articles: [
+      {
+        group: "Test",
+        number: "10001",
+        name: "Testartikel",
+        description: "Testartikel fuer test_user",
+        unit: "Std.",
+        unitPrice: 72,
+        taxRate: 20
+      }
+    ]
+  };
+}
+
 const DEFAULT_STORE = {
   settings: {
     business: {
@@ -150,7 +225,9 @@ const DEFAULT_STORE = {
     },
     auth: {
       username: "admin",
-      password: "admin"
+      password: "admin",
+      defaultUserPassword: "admin",
+      adminPasswordVersion: 0
     },
     invoice: {
       title: "Rechnung",
@@ -278,7 +355,9 @@ function createUserRecord({
       ...mergeSettings(settings),
       auth: {
         username: String(settings?.auth?.username || username || "admin").trim() || "admin",
-        password: String(settings?.auth?.password || password || "admin")
+        password: String(settings?.auth?.password || password || "admin"),
+        defaultUserPassword: String(settings?.auth?.defaultUserPassword || "admin"),
+        adminPasswordVersion: Number(settings?.auth?.adminPasswordVersion || 0)
       }
     },
     customers: Array.isArray(customers) ? customers : [],
@@ -290,7 +369,7 @@ function createUserRecord({
 }
 
 function applySeedDataIfNeeded(user) {
-  if (user.username !== "admin") {
+  if (!["admin", "test_user"].includes(user.username)) {
     return user;
   }
 
@@ -304,7 +383,8 @@ function applySeedDataIfNeeded(user) {
     return user;
   }
 
-  const seed = createAdminSeedPayload();
+  const seed =
+    user.username === "admin" ? createAdminSeedPayload() : createTestUserSeedPayload();
   return createUserRecord({
     ...user,
     settings: seed.settings,
@@ -319,11 +399,37 @@ function ensurePresetUsers(users = []) {
   PRESET_USERS.forEach(({ username, password }) => {
     const existingIndex = normalizedUsers.findIndex((entry) => entry.username === username);
     if (existingIndex >= 0) {
-      normalizedUsers[existingIndex] = applySeedDataIfNeeded(createUserRecord({
-        ...normalizedUsers[existingIndex],
-        username,
-        passwordHash: hashPassword(password)
-      }));
+      const existingUser = normalizedUsers[existingIndex];
+      const shouldMigrateAdminPassword =
+        username === "admin" &&
+        Number(existingUser.settings?.auth?.adminPasswordVersion || 0) < 1;
+      const preservedPassword =
+        shouldMigrateAdminPassword
+          ? password
+          : existingUser.settings?.auth?.password || password;
+      normalizedUsers[existingIndex] = applySeedDataIfNeeded(
+        createUserRecord({
+          ...existingUser,
+          username,
+          settings: {
+            ...existingUser.settings,
+            auth: {
+              ...(existingUser.settings?.auth || {}),
+              username,
+              password: preservedPassword,
+              defaultUserPassword: String(existingUser.settings?.auth?.defaultUserPassword || "admin"),
+              adminPasswordVersion:
+                username === "admin"
+                  ? 1
+                  : Number(existingUser.settings?.auth?.adminPasswordVersion || 0)
+            }
+          },
+          passwordHash:
+            shouldMigrateAdminPassword
+              ? hashPassword(password)
+              : existingUser.passwordHash || hashPassword(preservedPassword)
+        })
+      );
       return;
     }
 
@@ -528,7 +634,8 @@ function sanitizeSettings(settings) {
     },
     auth: {
       username: settings.auth?.username || "",
-      password: settings.auth?.password || ""
+      password: settings.auth?.password || "",
+      defaultUserPassword: settings.auth?.defaultUserPassword || "admin"
     },
     branding: {
       hasInvoiceLogo: Boolean(settings.branding?.hasInvoiceLogo),
@@ -667,6 +774,39 @@ async function syncUserToGoogleSheets(user) {
   }
 }
 
+async function fetchGoogleSheetsUserSummaries() {
+  if (!isGoogleSheetsSyncConfigured()) {
+    return [];
+  }
+
+  try {
+    const response = await requestGoogleSheetsSync("listUsers");
+    if (!response?.ok || !Array.isArray(response.users)) {
+      return [];
+    }
+    return response.users;
+  } catch (error) {
+    console.error("Google-Sheets-Benutzerliste fehlgeschlagen.", error);
+    return [];
+  }
+}
+
+async function buildAdminUsersResponse(store) {
+  const remoteUsers = await fetchGoogleSheetsUserSummaries();
+  const remoteByUsername = new Map(
+    remoteUsers.map((entry) => [String(entry.username || "").trim(), entry])
+  );
+
+  return store.users
+    .map((user) => {
+      const remote = remoteByUsername.get(user.username);
+      return serializeAdminUser(user, {
+        lastOnlineAt: remote?.updatedAt || user.updatedAt
+      });
+    })
+    .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
+}
+
 function queueGoogleSheetsSync(user) {
   if (!isGoogleSheetsSyncConfigured() || !user?.username) {
     return;
@@ -794,6 +934,34 @@ async function requireAuth(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+function requireAdmin(req, res, next) {
+  if (req.user?.username !== "admin") {
+    res.status(403).json({ error: "Nur der Admin darf diese Aktion ausführen." });
+    return;
+  }
+
+  next();
+}
+
+function getDefaultUserPassword(user) {
+  return String(user?.settings?.auth?.defaultUserPassword || "admin").trim() || "admin";
+}
+
+function serializeAdminUser(user, options = {}) {
+  const { lastOnlineAt = "" } = options;
+  return {
+    id: user.id,
+    username: user.username,
+    companyName: String(user.settings?.business?.companyName || "").trim(),
+    customerCount: Array.isArray(user.customers) ? user.customers.length : 0,
+    articleCount: Array.isArray(user.articles) ? user.articles.length : 0,
+    invoiceCount: Array.isArray(user.invoices) ? user.invoices.length : 0,
+    lastOnlineAt: String(lastOnlineAt || user.updatedAt || ""),
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  };
 }
 
 function buildInvoiceNumber(user, issueDate) {
@@ -1412,10 +1580,12 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
     await hydrateUserFromGoogleSheets(req.store, req.user);
+    const adminUsers = req.user.username === "admin" ? await buildAdminUsersResponse(req.store) : [];
     res.json({
       settings: getUserSettingsForClient(req.user),
       customers: req.user.customers,
       articles: req.user.articles,
+      adminUsers,
       invoices: [...req.user.invoices]
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((invoice) => serializeInvoiceForClient(invoice, req.session.token))
@@ -1473,6 +1643,107 @@ app.post("/api/auth/logout", requireAuth, async (req, res, next) => {
   }
 });
 
+app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ users: await buildAdminUsersResponse(req.store) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const username = String(req.body?.username || "")
+      .trim()
+      .toLowerCase();
+
+    if (!username) {
+      res.status(400).json({ error: "Bitte einen Benutzernamen eingeben." });
+      return;
+    }
+
+    if (!/^[a-z0-9_]+$/i.test(username)) {
+      res.status(400).json({ error: "Benutzernamen bitte nur mit Buchstaben, Zahlen und Unterstrich anlegen." });
+      return;
+    }
+
+    if (findUserByUsername(req.store, username)) {
+      res.status(409).json({ error: "Dieser Benutzername ist bereits vorhanden." });
+      return;
+    }
+
+    const requestedDefaultPassword = String(req.body?.defaultPassword || "").trim();
+    const defaultPassword = requestedDefaultPassword || getDefaultUserPassword(req.user);
+    req.user.settings.auth = {
+      ...req.user.settings.auth,
+      username: req.user.username,
+      password: req.user.settings.auth?.password || defaultPassword,
+      defaultUserPassword: defaultPassword,
+      adminPasswordVersion: 1
+    };
+    req.user.updatedAt = new Date().toISOString();
+    const newUser = createUserRecord({
+      username,
+      password: defaultPassword,
+      settings: {
+        auth: {
+          defaultUserPassword: "admin"
+        }
+      }
+    });
+
+    req.store.users.push(newUser);
+    await writeStore(req.store);
+    queueGoogleSheetsSync(req.user);
+    queueGoogleSheetsSync(newUser);
+
+    res.status(201).json({
+      user: serializeAdminUser(newUser),
+      users: await buildAdminUsersResponse(req.store),
+      settings: getUserSettingsForClient(req.user),
+      defaultUserPassword: defaultPassword
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const username = String(req.params.username || "").trim().toLowerCase();
+    if (username === "admin") {
+      res.status(400).json({ error: "Das Admin-Passwort bitte nur in den Einstellungen ändern." });
+      return;
+    }
+
+    const user = findUserByUsername(req.store, username);
+    if (!user) {
+      res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
+      return;
+    }
+
+    const defaultPassword = getDefaultUserPassword(req.user);
+    user.passwordHash = hashPassword(defaultPassword);
+    user.settings.auth = {
+      ...user.settings.auth,
+      username: user.username,
+      password: defaultPassword
+    };
+    user.updatedAt = new Date().toISOString();
+
+    await writeStore(req.store);
+    queueGoogleSheetsSync(user);
+
+    res.json({
+      ok: true,
+      message: `Passwort von ${user.username} wurde auf ${defaultPassword} zurückgesetzt.`,
+      users: await buildAdminUsersResponse(req.store)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/auth/password", requireAuth, async (req, res, next) => {
   try {
     const password = String(req.body?.password || "");
@@ -1485,7 +1756,8 @@ app.post("/api/auth/password", requireAuth, async (req, res, next) => {
     req.user.settings.auth = {
       ...req.user.settings.auth,
       username: req.user.username,
-      password
+      password,
+      adminPasswordVersion: req.user.username === "admin" ? 1 : Number(req.user.settings.auth?.adminPasswordVersion || 0)
     };
     req.user.updatedAt = new Date().toISOString();
 
@@ -1495,6 +1767,72 @@ app.post("/api/auth/password", requireAuth, async (req, res, next) => {
     res.json({
       ok: true,
       settings: getUserSettingsForClient(req.user)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/users/:username", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const username = String(req.params.username || "").trim().toLowerCase();
+    if (username === "admin") {
+      res.status(400).json({ error: "Der Admin-Benutzer kann nicht gelöscht werden." });
+      return;
+    }
+
+    const user = findUserByUsername(req.store, username);
+    if (!user) {
+      res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
+      return;
+    }
+
+    req.store.users = req.store.users.filter((entry) => entry.id !== user.id);
+    req.store.sessions = req.store.sessions.filter((entry) => entry.userId !== user.id);
+    await writeStore(req.store);
+
+    if (isGoogleSheetsSyncConfigured()) {
+      try {
+        await requestGoogleSheetsSync("deleteUserData", { username: user.username });
+      } catch (error) {
+        console.error(`Google-Sheets-Löschen fehlgeschlagen (${user.username}).`, error);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: `Benutzer ${user.username} wurde gelöscht.`,
+      users: await buildAdminUsersResponse(req.store)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const password = String(req.body?.password || "").trim();
+    if (!password) {
+      res.status(400).json({ error: "Bitte ein Standardkennwort eingeben." });
+      return;
+    }
+
+    req.user.settings.auth = {
+      ...req.user.settings.auth,
+      username: req.user.username,
+      password: req.user.settings.auth?.password || password,
+      defaultUserPassword: password,
+      adminPasswordVersion: 1
+    };
+    req.user.updatedAt = new Date().toISOString();
+
+    await writeStore(req.store);
+    queueGoogleSheetsSync(req.user);
+
+    res.json({
+      ok: true,
+      settings: getUserSettingsForClient(req.user),
+      message: `Standardkennwort wurde auf ${password} gesetzt.`
     });
   } catch (error) {
     next(error);
@@ -1542,7 +1880,10 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
       username: currentUser.username,
       password: incoming.auth?.password
         ? String(incoming.auth.password)
-        : currentUser.settings.auth?.password || "admin"
+        : currentUser.settings.auth?.password || "admin",
+      defaultUserPassword: String(currentUser.settings.auth?.defaultUserPassword || "admin"),
+      adminPasswordVersion:
+        currentUser.username === "admin" ? 1 : Number(currentUser.settings.auth?.adminPasswordVersion || 0)
     };
     currentUser.settings.invoice = {
       ...currentUser.settings.invoice,

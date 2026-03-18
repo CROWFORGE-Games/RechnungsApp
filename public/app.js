@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.5.0";
+const APP_VERSION = "V1.0.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -22,6 +22,7 @@ const state = {
     mode: "login"
   },
   settings: null,
+  adminUsers: [],
   customers: [],
   articles: [],
   invoices: [],
@@ -45,7 +46,20 @@ const appShell = document.getElementById("appShell");
 const statusBanner = document.getElementById("statusBanner");
 const appVersion = document.getElementById("appVersion");
 const settingsVersion = document.getElementById("settingsVersion");
+const settingsPanelTitle = document.getElementById("settingsPanelTitle");
 const templateHint = document.getElementById("templateHint");
+const mainInvoiceArea = document.getElementById("mainInvoiceArea");
+const adminMainArea = document.getElementById("adminMainArea");
+const adminUserForm = document.getElementById("adminUserForm");
+const adminNewUsernameInput = document.getElementById("adminNewUsername");
+const adminDefaultPasswordInput = document.getElementById("adminDefaultPassword");
+const saveAdminDefaultPasswordButton = document.getElementById("saveAdminDefaultPassword");
+const adminUsersTable = document.getElementById("adminUsersTable");
+const mainRailLabel = document.getElementById("mainRailLabel");
+const customersRailButton = document.getElementById("customersRailButton");
+const customersRailLabel = document.getElementById("customersRailLabel");
+const articlesRailButton = document.getElementById("articlesRailButton");
+const articlesRailLabel = document.getElementById("articlesRailLabel");
 const panelOverlay = document.getElementById("panelOverlay");
 const settingsForm = document.getElementById("settingsForm");
 const customerForm = document.getElementById("customerForm");
@@ -102,6 +116,7 @@ const bannerLogoImages = [...document.querySelectorAll("[data-banner-logo]")];
 const appLogoImages = [...document.querySelectorAll("[data-app-logo]")];
 const settingsLogoPreviewImages = [...document.querySelectorAll("[data-settings-logo-preview]")];
 const settingsLogoPreviewCards = [...document.querySelectorAll("[data-logo-card]")];
+const adminHiddenSettingsSections = [...document.querySelectorAll("[data-admin-hidden-section]")];
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
@@ -300,6 +315,25 @@ function formatTime(value) {
   }).format(date);
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("de-AT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function formatAmount(value) {
   return new Intl.NumberFormat("de-AT", {
     minimumFractionDigits: 2,
@@ -389,6 +423,10 @@ function selectedArticle(articleId) {
   return state.articles.find((entry) => entry.id === articleId) || null;
 }
 
+function isAdminUser() {
+  return state.auth.username === "admin";
+}
+
 function normalizeArticle(article) {
   return {
     ...article,
@@ -463,6 +501,7 @@ function resetAuthenticatedState() {
   state.auth.authenticated = false;
   state.auth.username = "";
   state.settings = null;
+  state.adminUsers = [];
   state.customers = [];
   state.articles = [];
   state.invoices = [];
@@ -510,6 +549,42 @@ function setActiveRail(targetPanelId = null) {
   });
 }
 
+function applyRoleBasedUi() {
+  const adminMode = isAdminUser();
+
+  if (mainInvoiceArea) {
+    mainInvoiceArea.hidden = adminMode;
+  }
+  if (adminMainArea) {
+    adminMainArea.hidden = !adminMode;
+  }
+  if (mainRailLabel) {
+    mainRailLabel.textContent = adminMode ? "Benutzer" : "Rechnungen";
+  }
+  if (customersRailButton) {
+    customersRailButton.hidden = adminMode;
+  }
+  if (articlesRailButton) {
+    articlesRailButton.hidden = adminMode;
+  }
+  if (customersRailLabel) {
+    customersRailLabel.textContent = "Kunde hinzufügen";
+  }
+  if (articlesRailLabel) {
+    articlesRailLabel.textContent = "Artikel hinzufügen";
+  }
+  if (settingsPanelTitle) {
+    settingsPanelTitle.textContent = adminMode ? "Benutzer und Logos" : "Firma, Bank und E-Mail";
+  }
+  adminHiddenSettingsSections.forEach((section) => {
+    section.hidden = adminMode;
+  });
+
+  if (adminMode && (state.openPanelId === "customersPanel" || state.openPanelId === "articlesPanel")) {
+    closePanels();
+  }
+}
+
 function loadCollapsedState() {
   const storedValue = window.localStorage.getItem(STORAGE_KEYS.navCollapsed);
   const isCollapsed = storedValue === null ? true : storedValue === "true";
@@ -523,6 +598,10 @@ function toggleNavigation() {
 }
 
 function openPanel(panelId) {
+  const targetPanel = panelElements.find((panel) => panel.id === panelId);
+  if (!targetPanel || targetPanel.hidden) {
+    return;
+  }
   state.openPanelId = panelId;
   setActiveRail(panelId);
   panelOverlay.hidden = false;
@@ -863,6 +942,9 @@ function populateSettingsForm() {
   updateSettingsAuthPasswordToggleLabel();
   updateSmtpPassToggleLabel();
   updateSmtpVisibility();
+  if (adminDefaultPasswordInput) {
+    adminDefaultPasswordInput.value = auth?.defaultUserPassword || "admin";
+  }
 }
 
 function readSettingsForm() {
@@ -1531,6 +1613,44 @@ function renderArticles() {
     .join("");
 }
 
+function renderAdminUsers() {
+  if (!adminUsersTable) {
+    return;
+  }
+
+  if (!state.adminUsers.length) {
+    adminUsersTable.innerHTML = '<tr><td colspan="5" class="empty-state">Noch keine Benutzer vorhanden.</td></tr>';
+    return;
+  }
+
+  adminUsersTable.innerHTML = state.adminUsers
+    .map(
+      (user) => `
+        <tr>
+          <td data-label="Benutzer">
+            <strong>${escapeHtml(user.username)}</strong>
+          </td>
+          <td data-label="Firma">${escapeHtml(user.companyName || "-")}</td>
+          <td data-label="Daten">
+            ${escapeHtml(`${user.customerCount || 0} Kunden / ${user.articleCount || 0} Artikel / ${user.invoiceCount || 0} Rechnungen`)}
+          </td>
+          <td data-label="Zuletzt online">${escapeHtml(formatDateTime(user.lastOnlineAt) || "-")}</td>
+          <td data-label="Aktion">
+            ${
+              user.username === "admin"
+                ? '<div class="muted-note">Passwort über Einstellungen ändern</div>'
+                : `<div class="row-actions">
+                    <button class="danger" type="button" data-reset-user-password="${escapeHtml(user.username)}">Passwort zurücksetzen</button>
+                    <button class="danger ghost-danger" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer löschen</button>
+                  </div>`
+            }
+          </td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
 function buildArticleOptions(selectedId) {
   const options = ['<option value="">Leistung auswählen</option>'];
   for (const article of sortByNumericField(state.articles, "number")) {
@@ -2112,6 +2232,112 @@ async function clearAppLogo() {
     setStatus("App-Logo entfernt. Das Standardlogo wird wieder verwendet.", "success");
   } catch (error) {
     setStatus(error.message || "App-Logo konnte nicht entfernt werden.", "error");
+  }
+}
+
+async function createAdminUser(event) {
+  event.preventDefault();
+
+  const username = String(adminNewUsernameInput?.value || "")
+    .trim()
+    .toLowerCase();
+  const defaultPassword = String(adminDefaultPasswordInput?.value || "").trim() || "admin";
+
+  if (!username) {
+    setStatus("Bitte einen Benutzernamen eingeben.", "error");
+    adminNewUsernameInput?.focus();
+    return;
+  }
+
+  try {
+    const response = await api("/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ username, defaultPassword })
+    });
+
+    state.adminUsers = response.users || [];
+    if (response.settings) {
+      state.settings = response.settings;
+      populateSettingsForm();
+    }
+    renderAdminUsers();
+    adminUserForm?.reset();
+    if (adminDefaultPasswordInput) {
+      adminDefaultPasswordInput.value = defaultPassword;
+    }
+    setStatus(`Benutzer ${username} wurde mit dem Passwort ${defaultPassword} angelegt.`, "success");
+    adminNewUsernameInput?.focus();
+  } catch (error) {
+    setStatus(error.message || "Benutzer konnte nicht angelegt werden.", "error");
+  }
+}
+
+async function saveAdminDefaultPassword() {
+  const defaultPassword = String(adminDefaultPasswordInput?.value || "").trim();
+  if (!defaultPassword) {
+    setStatus("Bitte ein Standardkennwort eingeben.", "error");
+    adminDefaultPasswordInput?.focus();
+    return;
+  }
+
+  try {
+    const response = await api("/api/admin/default-password", {
+      method: "POST",
+      body: JSON.stringify({ password: defaultPassword })
+    });
+
+    state.settings = response.settings;
+    populateSettingsForm();
+    if (adminDefaultPasswordInput) {
+      adminDefaultPasswordInput.value = defaultPassword;
+    }
+    setStatus(response.message || "Standardkennwort gespeichert.", "success");
+  } catch (error) {
+    setStatus(error.message || "Standardkennwort konnte nicht gespeichert werden.", "error");
+  }
+}
+
+async function resetAdminUserPassword(username) {
+  if (!username) {
+    return;
+  }
+
+  if (!window.confirm(`Willst du das Passwort von ${username} wirklich zurücksetzen?`)) {
+    return;
+  }
+
+  try {
+    const response = await api(`/api/admin/users/${encodeURIComponent(username)}/reset-password`, {
+      method: "POST"
+    });
+
+    state.adminUsers = response.users || [];
+    renderAdminUsers();
+    setStatus(response.message || `Passwort von ${username} wurde zurückgesetzt.`, "success");
+  } catch (error) {
+    setStatus(error.message || "Passwort konnte nicht zurückgesetzt werden.", "error");
+  }
+}
+
+async function deleteAdminUser(username) {
+  if (!username) {
+    return;
+  }
+
+  if (!window.confirm(`Willst du den Benutzer ${username} wirklich löschen? Alle Daten dieses Benutzers gehen dabei verloren.`)) {
+    return;
+  }
+
+  try {
+    const response = await api(`/api/admin/users/${encodeURIComponent(username)}`, {
+      method: "DELETE"
+    });
+
+    state.adminUsers = response.users || [];
+    renderAdminUsers();
+    setStatus(response.message || `Benutzer ${username} wurde gelöscht.`, "success");
+  } catch (error) {
+    setStatus(error.message || "Benutzer konnte nicht gelöscht werden.", "error");
   }
 }
 
@@ -3068,6 +3294,8 @@ function bindDialogs() {
 function bindStaticEvents() {
   invoiceForm.addEventListener("submit", (event) => event.preventDefault());
   settingsForm.addEventListener("submit", saveSettings);
+  adminUserForm?.addEventListener("submit", createAdminUser);
+  saveAdminDefaultPasswordButton?.addEventListener("click", saveAdminDefaultPassword);
   settingsFields.businessEmail.addEventListener("input", (event) => {
     syncBusinessEmailDefaults(event.target.value);
   });
@@ -3138,6 +3366,18 @@ function bindStaticEvents() {
       await shareExistingInvoice(shareButton.dataset.shareInvoice);
     }
   });
+  adminUsersTable?.addEventListener("click", async (event) => {
+    const resetButton = event.target.closest("[data-reset-user-password]");
+    if (resetButton) {
+      await resetAdminUserPassword(resetButton.dataset.resetUserPassword);
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-user]");
+    if (deleteButton) {
+      await deleteAdminUser(deleteButton.dataset.deleteUser);
+    }
+  });
   invoiceItemsTable.addEventListener("input", handleInvoiceTableInput);
   invoiceItemsTable.addEventListener("change", handleInvoiceTableChange);
   invoiceItemsTable.addEventListener("click", handleInvoiceTableClick);
@@ -3165,6 +3405,7 @@ async function bootstrap() {
     setStatus("Lade Daten...");
     const response = await api("/api/bootstrap");
     state.settings = response.settings;
+    state.adminUsers = response.adminUsers || [];
     state.customers = sortByNumericField(response.customers || [], "customerNumber");
     state.articles = sortByNumericField((response.articles || []).map(normalizeArticle), "number");
     state.invoices = response.invoices || [];
@@ -3174,12 +3415,14 @@ async function bootstrap() {
     }
 
     populateSettingsForm();
+    applyRoleBasedUi();
     refreshBrandAssets();
     fillCustomerForm(null);
     fillArticleForm(null);
     syncInvoiceMetaInputs();
     renderCustomers();
     renderArticles();
+    renderAdminUsers();
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     renderInvoiceHistory();
@@ -3224,6 +3467,7 @@ async function initializeApp() {
   updateSettingsAuthPasswordToggleLabel();
   updatePasswordDialogValidation();
   updateSmtpVisibility();
+  applyRoleBasedUi();
 
   authUsernameInput.value = state.auth.username || "";
   if (state.auth.authenticated) {

@@ -352,6 +352,7 @@
       <div class="side-panel__head">
         <div>
           <p class="section-kicker">Einstellungen</p>
+          <h2>Firma, Bank und E-Mail</h2>
         </div>
         <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
       </div>
@@ -543,21 +544,22 @@
         <fieldset class="settings-section span-2">
           <legend>Logos</legend>
           <div class="settings-section__grid">
-            <div class="logo-preview-card">
+            <div class="logo-preview-card" data-logo-card="invoice">
+              <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen">×</button>
               <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
+              <span class="logo-preview-card__empty">Kein Logo</span>
               <p class="logo-preview-card__label">Rechnungslogo</p>
             </div>
-            <div class="logo-preview-card">
+            <div class="logo-preview-card" data-logo-card="app">
+              <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen">×</button>
               <img class="logo-preview-card__image" data-settings-logo-preview="app" src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
+              <span class="logo-preview-card__empty">Standardlogo</span>
               <p class="logo-preview-card__label">App-Logo</p>
             </div>
             <label>
               Rechnungslogo
               <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
             </label>
-            <div class="logo-action-wrap">
-              <button class="ghost" id="removeInvoiceLogo" type="button">Kein Rechnungslogo verwenden</button>
-            </div>
             <label>
               App-Logo
               <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />

@@ -11,6 +11,8 @@ const BRAND_ASSET_URLS = {
 };
 const INVOICE_LOGO_PLACEHOLDER_URL = "/assets/logo-placeholder.svg";
 const APP_LOGO_PLACEHOLDER_URL = "/assets/app-icon.svg";
+const EMPTY_IMAGE_DATA_URL =
+  "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 
 const state = {
   auth: {
@@ -92,12 +94,14 @@ const smtpSettingsGroup = document.getElementById("smtpSettingsGroup");
 const invoiceLogoFileInput = document.getElementById("invoiceLogoFile");
 const appLogoFileInput = document.getElementById("appLogoFile");
 const removeInvoiceLogoButton = document.getElementById("removeInvoiceLogo");
+const removeAppLogoButton = document.getElementById("removeAppLogo");
 const appFavicon = document.getElementById("appFavicon");
 const appleTouchIcon = document.getElementById("appleTouchIcon");
 const appManifest = document.getElementById("appManifest");
 const bannerLogoImages = [...document.querySelectorAll("[data-banner-logo]")];
 const appLogoImages = [...document.querySelectorAll("[data-app-logo]")];
 const settingsLogoPreviewImages = [...document.querySelectorAll("[data-settings-logo-preview]")];
+const settingsLogoPreviewCards = [...document.querySelectorAll("[data-logo-card]")];
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
@@ -1033,6 +1037,14 @@ function scrollPanelFormToTop(formElement) {
   panel.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function scrollMainContentToTop() {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  document.documentElement.scrollTo?.({ top: 0, behavior: "smooth" });
+  document.body.scrollTo?.({ top: 0, behavior: "smooth" });
+  document.querySelector(".content-shell")?.scrollTo?.({ top: 0, behavior: "smooth" });
+  document.querySelector(".main-card")?.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+
 function updateSmtpPassToggleLabel() {
   if (!toggleSmtpPassButton || !smtpPassInput) {
     return;
@@ -1117,11 +1129,13 @@ function updatePasswordDialogValidation() {
 function refreshBrandAssets() {
   const invoiceUrl = getBrandAssetUrl("invoice");
   const appUrl = getBrandAssetUrl("app");
-  const invoicePreviewUrl = state.settings?.branding?.hasInvoiceLogo ? invoiceUrl : INVOICE_LOGO_PLACEHOLDER_URL;
-  const appPreviewUrl = state.settings?.branding?.hasAppLogo ? appUrl : APP_LOGO_PLACEHOLDER_URL;
+  const hasInvoiceLogo = Boolean(state.settings?.branding?.hasInvoiceLogo);
+  const hasAppLogo = Boolean(state.settings?.branding?.hasAppLogo);
+  const invoicePreviewUrl = hasInvoiceLogo ? invoiceUrl : EMPTY_IMAGE_DATA_URL;
+  const appPreviewUrl = hasAppLogo ? appUrl : APP_LOGO_PLACEHOLDER_URL;
 
   bannerLogoImages.forEach((image) => {
-    image.src = invoicePreviewUrl;
+    image.src = appPreviewUrl;
   });
   appLogoImages.forEach((image) => {
     image.src = appPreviewUrl;
@@ -1129,8 +1143,15 @@ function refreshBrandAssets() {
   settingsLogoPreviewImages.forEach((image) => {
     image.src = image.dataset.settingsLogoPreview === "invoice" ? invoicePreviewUrl : appPreviewUrl;
   });
+  settingsLogoPreviewCards.forEach((card) => {
+    const kind = card.dataset.logoCard;
+    card.classList.toggle("is-empty", kind === "invoice" ? !hasInvoiceLogo : !hasAppLogo);
+  });
   if (removeInvoiceLogoButton) {
-    removeInvoiceLogoButton.disabled = !state.settings?.branding?.hasInvoiceLogo;
+    removeInvoiceLogoButton.disabled = !hasInvoiceLogo;
+  }
+  if (removeAppLogoButton) {
+    removeAppLogoButton.disabled = !hasAppLogo;
   }
   if (appFavicon) {
     appFavicon.href = appPreviewUrl;
@@ -1258,6 +1279,17 @@ async function previewSelectedLogo(kind, file) {
       image.src = imageDataUrl;
     }
   });
+  settingsLogoPreviewCards.forEach((card) => {
+    if (card.dataset.logoCard === kind) {
+      card.classList.remove("is-empty");
+    }
+  });
+  if (kind === "invoice" && removeInvoiceLogoButton) {
+    removeInvoiceLogoButton.disabled = false;
+  }
+  if (kind === "app" && removeAppLogoButton) {
+    removeAppLogoButton.disabled = false;
+  }
 }
 
 async function removeLogoAsset(kind) {
@@ -2065,6 +2097,24 @@ async function clearInvoiceLogo() {
   }
 }
 
+async function clearAppLogo() {
+  try {
+    await removeLogoAsset("app");
+    state.settings.branding = {
+      ...(state.settings.branding || {}),
+      hasAppLogo: false
+    };
+    if (appLogoFileInput) {
+      appLogoFileInput.value = "";
+    }
+    refreshBrandAssets();
+    populateSettingsForm();
+    setStatus("App-Logo entfernt. Das Standardlogo wird wieder verwendet.", "success");
+  } catch (error) {
+    setStatus(error.message || "App-Logo konnte nicht entfernt werden.", "error");
+  }
+}
+
 async function submitPasswordChange(event) {
   event.preventDefault();
 
@@ -2568,6 +2618,7 @@ async function sendInvoice() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
+    scrollMainContentToTop();
     setStatus("Bereit. Rechnung kann erstellt werden.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht gesendet werden.", "error");
@@ -3050,6 +3101,7 @@ function bindStaticEvents() {
     }
   });
   removeInvoiceLogoButton?.addEventListener("click", clearInvoiceLogo);
+  removeAppLogoButton?.addEventListener("click", clearAppLogo);
   addCcEmailButton?.addEventListener("click", () => addCcEmailRow(""));
   ccEmailList?.addEventListener("click", (event) => {
     const removeButton = event.target.closest("[data-remove-cc]");

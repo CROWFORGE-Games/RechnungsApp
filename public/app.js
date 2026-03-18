@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.4.7";
+const APP_VERSION = "V0.5.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -9,6 +9,8 @@ const BRAND_ASSET_URLS = {
   invoice: "/api/assets/logo/invoice",
   app: "/api/assets/logo/app"
 };
+const INVOICE_LOGO_PLACEHOLDER_URL = "/assets/logo-placeholder.svg";
+const APP_LOGO_PLACEHOLDER_URL = "/assets/app-icon.svg";
 
 const state = {
   auth: {
@@ -76,8 +78,10 @@ const authUsernameInput = document.getElementById("authUsername");
 const authPasswordInput = document.getElementById("authPassword");
 const logoutButton = document.getElementById("logoutButton");
 const logoutButtonSettings = document.getElementById("logoutButtonSettings");
+const settingsAuthUsernameDisplay = document.getElementById("settingsAuthUsernameDisplay");
 const settingsAuthPasswordInput = document.getElementById("settingsAuthPassword");
 const toggleSettingsAuthPasswordButton = document.getElementById("toggleSettingsAuthPassword");
+const changeSettingsPasswordButton = document.getElementById("changeSettingsPassword");
 const smtpPassInput = document.getElementById("smtpPass");
 const toggleSmtpPassButton = document.getElementById("toggleSmtpPass");
 const openSmtpInfoButton = document.getElementById("openSmtpInfo");
@@ -87,11 +91,13 @@ const smtpEnabledInput = document.getElementById("smtpEnabled");
 const smtpSettingsGroup = document.getElementById("smtpSettingsGroup");
 const invoiceLogoFileInput = document.getElementById("invoiceLogoFile");
 const appLogoFileInput = document.getElementById("appLogoFile");
+const removeInvoiceLogoButton = document.getElementById("removeInvoiceLogo");
 const appFavicon = document.getElementById("appFavicon");
 const appleTouchIcon = document.getElementById("appleTouchIcon");
 const appManifest = document.getElementById("appManifest");
 const bannerLogoImages = [...document.querySelectorAll("[data-banner-logo]")];
 const appLogoImages = [...document.querySelectorAll("[data-app-logo]")];
+const settingsLogoPreviewImages = [...document.querySelectorAll("[data-settings-logo-preview]")];
 const sendDialog = document.getElementById("sendDialog");
 const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
@@ -112,6 +118,16 @@ const signatureDialogCard = signatureDialog.querySelector(".dialog-card");
 const smtpInfoDialog = document.getElementById("smtpInfoDialog");
 const closeSmtpInfoDialogButton = document.getElementById("closeSmtpInfoDialog");
 const confirmSmtpInfoDialogButton = document.getElementById("confirmSmtpInfoDialog");
+const passwordDialog = document.getElementById("passwordDialog");
+const passwordDialogForm = document.getElementById("passwordDialogForm");
+const closePasswordDialogButton = document.getElementById("closePasswordDialog");
+const cancelPasswordDialogButton = document.getElementById("cancelPasswordDialog");
+const passwordDialogNewInput = document.getElementById("passwordDialogNew");
+const passwordDialogConfirmInput = document.getElementById("passwordDialogConfirm");
+const togglePasswordDialogNewButton = document.getElementById("togglePasswordDialogNew");
+const togglePasswordDialogConfirmButton = document.getElementById("togglePasswordDialogConfirm");
+const confirmPasswordDialogButton = document.getElementById("confirmPasswordDialog");
+const passwordDialogFeedback = document.getElementById("passwordDialogFeedback");
 const installPrompt = document.getElementById("installPrompt");
 const installPromptText = document.getElementById("installPromptText");
 const dismissInstallPromptButton = document.getElementById("dismissInstallPrompt");
@@ -523,7 +539,7 @@ function closePanels() {
     panel.classList.remove("is-open");
     panel.setAttribute("aria-hidden", "true");
   });
-  if (authOverlay.hidden && sendDialog.hidden) {
+  if (authOverlay.hidden && sendDialog.hidden && signatureDialog.hidden && smtpInfoDialog.hidden && passwordDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
 }
@@ -552,8 +568,10 @@ function openSendDialog() {
 function closeSendDialog() {
   sendDialog.hidden = true;
   signatureDialog.hidden = true;
-  document.body.classList.remove("dialog-open");
-  if (authOverlay.hidden && state.openPanelId === null) {
+  if (smtpInfoDialog.hidden && passwordDialog.hidden && authOverlay.hidden) {
+    document.body.classList.remove("dialog-open");
+  }
+  if (authOverlay.hidden && state.openPanelId === null && smtpInfoDialog.hidden && passwordDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
 }
@@ -572,10 +590,10 @@ function openSignatureDialog() {
 
 function closeSignatureDialog() {
   signatureDialog.hidden = true;
-  if (sendDialog.hidden && smtpInfoDialog.hidden && authOverlay.hidden) {
+  if (sendDialog.hidden && smtpInfoDialog.hidden && passwordDialog.hidden && authOverlay.hidden) {
     document.body.classList.remove("dialog-open");
   }
-  if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden) {
+  if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden && passwordDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
 }
@@ -588,10 +606,57 @@ function openSmtpInfoDialog() {
 
 function closeSmtpInfoDialog() {
   smtpInfoDialog.hidden = true;
-  if (sendDialog.hidden && signatureDialog.hidden && authOverlay.hidden) {
+  if (sendDialog.hidden && signatureDialog.hidden && passwordDialog.hidden && authOverlay.hidden) {
     document.body.classList.remove("dialog-open");
   }
-  if (authOverlay.hidden && state.openPanelId === null && sendDialog.hidden && signatureDialog.hidden) {
+  if (
+    authOverlay.hidden &&
+    state.openPanelId === null &&
+    sendDialog.hidden &&
+    signatureDialog.hidden &&
+    passwordDialog.hidden
+  ) {
+    document.body.classList.remove("panel-open");
+  }
+}
+
+function openPasswordDialog() {
+  passwordDialogForm?.reset();
+  if (passwordDialogNewInput) {
+    passwordDialogNewInput.type = "password";
+  }
+  if (passwordDialogConfirmInput) {
+    passwordDialogConfirmInput.type = "password";
+  }
+  updatePasswordDialogValidation();
+  passwordDialog.hidden = false;
+  document.body.classList.add("panel-open");
+  document.body.classList.add("dialog-open");
+  window.setTimeout(() => {
+    passwordDialogNewInput?.focus();
+  }, 50);
+}
+
+function closePasswordDialog() {
+  passwordDialog.hidden = true;
+  passwordDialogForm?.reset();
+  if (passwordDialogNewInput) {
+    passwordDialogNewInput.type = "password";
+  }
+  if (passwordDialogConfirmInput) {
+    passwordDialogConfirmInput.type = "password";
+  }
+  updatePasswordDialogValidation();
+  if (sendDialog.hidden && signatureDialog.hidden && smtpInfoDialog.hidden && authOverlay.hidden) {
+    document.body.classList.remove("dialog-open");
+  }
+  if (
+    authOverlay.hidden &&
+    state.openPanelId === null &&
+    sendDialog.hidden &&
+    signatureDialog.hidden &&
+    smtpInfoDialog.hidden
+  ) {
     document.body.classList.remove("panel-open");
   }
 }
@@ -621,10 +686,10 @@ function setAuthMode(mode = "login") {
   state.auth.mode = "login";
   authModeKicker.textContent = "Anmeldung";
   authTitle.textContent = "Anmelden";
-  authText.textContent =
-    "Mit einem vorhandenen Benutzer anmelden. Verfügbar sind admin und kaindl_daniel, jeweils mit dem Kennwort admin."; /*
+  authText.textContent = "Mit einem vorhandenen Benutzer anmelden."; /*
     : "Mit deinem Benutzer anmelden. Nach dem Login werden deine eigenen Daten auf jedem Gerät wieder geladen.";
-  */ authSubmit.textContent = "Anmelden";
+  */
+  authSubmit.textContent = "Anmelden";
   return;
   /* legacy auth mode removed
   authModeKicker.textContent = isRegister ? "Erster Start" : "Anmeldung";
@@ -646,10 +711,10 @@ function showAuthOverlay() {
 
 function hideAuthOverlay() {
   authOverlay.hidden = true;
-  if (sendDialog.hidden && signatureDialog.hidden && smtpInfoDialog.hidden) {
+  if (sendDialog.hidden && signatureDialog.hidden && smtpInfoDialog.hidden && passwordDialog.hidden) {
     document.body.classList.remove("dialog-open");
   }
-  if (state.openPanelId === null && sendDialog.hidden) {
+  if (state.openPanelId === null && sendDialog.hidden && signatureDialog.hidden && smtpInfoDialog.hidden && passwordDialog.hidden) {
     document.body.classList.remove("panel-open");
   }
 }
@@ -732,24 +797,17 @@ async function loadLogo() {
     return logoState.image;
   }
 
-  const candidates = [
-    BRAND_ASSET_URLS.invoice,
-    "/assets/KaindlBanner.png",
-    "/assets/logo.png",
-    "/assets/logo.png.png",
-    "/assets/logo.webp",
-    "/assets/logo.jpg",
-    "/assets/logo.jpeg"
-  ];
+  if (!state.settings?.branding?.hasInvoiceLogo) {
+    logoState.loaded = true;
+    return null;
+  }
 
-  for (const candidate of candidates) {
-    try {
-      logoState.image = await loadImage(candidate);
-      logoState.loaded = true;
-      return logoState.image;
-    } catch {
-      // Nächste Datei versuchen.
-    }
+  try {
+    logoState.image = await loadImage(getBrandAssetUrl("invoice"));
+    logoState.loaded = true;
+    return logoState.image;
+  } catch {
+    // Platzhalter statt Standardlogo.
   }
 
   logoState.loaded = true;
@@ -763,7 +821,10 @@ function populateSettingsForm() {
 
   const { business, smtp, invoice, email, auth } = state.settings;
   settingsFields.authUsername.value = auth?.username || "";
-  settingsFields.authPassword.value = "";
+  if (settingsAuthUsernameDisplay) {
+    settingsAuthUsernameDisplay.textContent = auth?.username || state.auth.username || "admin";
+  }
+  settingsFields.authPassword.value = auth?.password || "";
   settingsFields.companyName.value = business.companyName || "";
   settingsFields.senderLine.value = business.senderLine || "";
   settingsFields.addressLine1.value = business.addressLine1 || "";
@@ -819,7 +880,7 @@ function readSettingsForm() {
       footerNote: settingsFields.footerNote.value.trim()
     },
     auth: {
-      username: settingsFields.authUsername.value.trim() || "admin",
+      username: settingsFields.authUsername.value.trim() || state.auth.username || "admin",
       password: settingsFields.authPassword.value
     },
     smtp: {
@@ -998,25 +1059,104 @@ function updateSettingsAuthPasswordToggleLabel() {
   toggleSettingsAuthPasswordButton.title = isHidden ? "Kennwort anzeigen" : "Kennwort verbergen";
 }
 
+function updatePasswordToggleButton(button, input, hiddenLabel, visibleLabel) {
+  if (!button || !input) {
+    return;
+  }
+
+  const isHidden = input.type === "password";
+  button.classList.toggle("is-visible", !isHidden);
+  button.setAttribute("aria-label", isHidden ? hiddenLabel : visibleLabel);
+  button.title = isHidden ? hiddenLabel : visibleLabel;
+}
+
+function updatePasswordDialogValidation() {
+  const nextPassword = String(passwordDialogNewInput?.value || "");
+  const confirmPassword = String(passwordDialogConfirmInput?.value || "");
+  const hasNewPassword = Boolean(nextPassword.trim());
+  const hasConfirmPassword = Boolean(confirmPassword.trim());
+  const matches = hasNewPassword && hasConfirmPassword && nextPassword === confirmPassword;
+  const showMismatch = hasConfirmPassword && nextPassword !== confirmPassword;
+
+  passwordDialogNewInput?.classList.toggle("is-invalid", showMismatch);
+  passwordDialogConfirmInput?.classList.toggle("is-invalid", showMismatch);
+
+  if (passwordDialogFeedback) {
+    if (showMismatch) {
+      passwordDialogFeedback.textContent = "Die Kennwörter stimmen nicht überein.";
+      passwordDialogFeedback.classList.add("is-error");
+    } else if (matches) {
+      passwordDialogFeedback.textContent = "Kennwörter stimmen überein.";
+      passwordDialogFeedback.classList.remove("is-error");
+    } else {
+      passwordDialogFeedback.textContent = "";
+      passwordDialogFeedback.classList.remove("is-error");
+    }
+  }
+
+  if (confirmPasswordDialogButton) {
+    confirmPasswordDialogButton.disabled = !matches;
+  }
+
+  updatePasswordToggleButton(
+    togglePasswordDialogNewButton,
+    passwordDialogNewInput,
+    "Neues Kennwort anzeigen",
+    "Neues Kennwort verbergen"
+  );
+  updatePasswordToggleButton(
+    togglePasswordDialogConfirmButton,
+    passwordDialogConfirmInput,
+    "Kennwort bestätigen anzeigen",
+    "Kennwort bestätigen verbergen"
+  );
+}
+
 function refreshBrandAssets() {
-  const stamp = `?v=${Date.now()}`;
+  const invoiceUrl = getBrandAssetUrl("invoice");
+  const appUrl = getBrandAssetUrl("app");
+  const invoicePreviewUrl = state.settings?.branding?.hasInvoiceLogo ? invoiceUrl : INVOICE_LOGO_PLACEHOLDER_URL;
+  const appPreviewUrl = state.settings?.branding?.hasAppLogo ? appUrl : APP_LOGO_PLACEHOLDER_URL;
+
   bannerLogoImages.forEach((image) => {
-    image.src = `${BRAND_ASSET_URLS.invoice}${stamp}`;
+    image.src = invoicePreviewUrl;
   });
   appLogoImages.forEach((image) => {
-    image.src = `${BRAND_ASSET_URLS.app}${stamp}`;
+    image.src = appPreviewUrl;
   });
+  settingsLogoPreviewImages.forEach((image) => {
+    image.src = image.dataset.settingsLogoPreview === "invoice" ? invoicePreviewUrl : appPreviewUrl;
+  });
+  if (removeInvoiceLogoButton) {
+    removeInvoiceLogoButton.disabled = !state.settings?.branding?.hasInvoiceLogo;
+  }
   if (appFavicon) {
-    appFavicon.href = `${BRAND_ASSET_URLS.app}${stamp}`;
+    appFavicon.href = appPreviewUrl;
   }
   if (appleTouchIcon) {
-    appleTouchIcon.href = `${BRAND_ASSET_URLS.app}${stamp}`;
+    appleTouchIcon.href = appPreviewUrl;
   }
   if (appManifest) {
-    appManifest.href = `/api/manifest.webmanifest${stamp}`;
+    const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
+    const manifestUrl = new URL("/api/manifest.webmanifest", window.location.origin);
+    manifestUrl.searchParams.set("v", String(Date.now()));
+    if (authToken) {
+      manifestUrl.searchParams.set("token", authToken);
+    }
+    appManifest.href = manifestUrl.toString();
   }
   logoState.loaded = false;
   logoState.image = null;
+}
+
+function getBrandAssetUrl(kind) {
+  const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
+  const url = new URL(BRAND_ASSET_URLS[kind], window.location.origin);
+  url.searchParams.set("v", String(Date.now()));
+  if (authToken) {
+    url.searchParams.set("token", authToken);
+  }
+  return url.toString();
 }
 
 function fileToPngDataUrl(file) {
@@ -1101,6 +1241,12 @@ async function uploadLogoAsset(kind, file) {
   await api("/api/assets/logo", {
     method: "POST",
     body: JSON.stringify({ kind, imageDataUrl })
+  });
+}
+
+async function removeLogoAsset(kind) {
+  await api(`/api/assets/logo/${encodeURIComponent(kind)}`, {
+    method: "DELETE"
   });
 }
 
@@ -1657,6 +1803,19 @@ async function renderCanvas() {
     const drawWidth = logo.width * ratio;
     const drawHeight = logo.height * ratio;
     canvasContext.drawImage(logo, 66, 46, drawWidth, drawHeight);
+  } else {
+    canvasContext.save();
+    canvasContext.strokeStyle = "#8aa596";
+    canvasContext.lineWidth = 2;
+    canvasContext.setLineDash([8, 6]);
+    canvasContext.strokeRect(66, 46, 180, 78);
+    canvasContext.setLineDash([]);
+    canvasContext.fillStyle = "#607668";
+    canvasContext.font = '16px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.textAlign = "center";
+    canvasContext.fillText("Logo", 156, 78);
+    canvasContext.textAlign = "start";
+    canvasContext.restore();
   }
 
   canvasContext.fillStyle = "#101010";
@@ -1854,6 +2013,10 @@ async function saveSettings(event) {
 
     state.settings = response.settings;
     state.auth.username = response.settings.auth?.username || state.auth.username;
+    state.settings.branding = {
+      hasInvoiceLogo: Boolean(response.settings.branding?.hasInvoiceLogo || invoiceLogoFile),
+      hasAppLogo: Boolean(response.settings.branding?.hasAppLogo || appLogoFile)
+    };
     if (invoiceLogoFileInput) {
       invoiceLogoFileInput.value = "";
     }
@@ -1862,6 +2025,8 @@ async function saveSettings(event) {
     }
     refreshBrandAssets();
     populateSettingsForm();
+    await renderCanvas();
+    refreshSendPreview();
     setStatus(
       invoiceLogoFile || appLogoFile
         ? "Einstellungen und Logos gespeichert."
@@ -1872,6 +2037,63 @@ async function saveSettings(event) {
     closePanels();
   } catch (error) {
     setStatus(error.message || "Einstellungen konnten nicht gespeichert werden.", "error");
+  }
+}
+
+async function clearInvoiceLogo() {
+  try {
+    await removeLogoAsset("invoice");
+    state.settings.branding = {
+      ...(state.settings.branding || {}),
+      hasInvoiceLogo: false
+    };
+    if (invoiceLogoFileInput) {
+      invoiceLogoFileInput.value = "";
+    }
+    refreshBrandAssets();
+    populateSettingsForm();
+    await renderCanvas();
+    refreshSendPreview();
+    setStatus("Rechnungslogo entfernt. Die Rechnung wird jetzt ohne Logo erstellt.", "success");
+  } catch (error) {
+    setStatus(error.message || "Rechnungslogo konnte nicht entfernt werden.", "error");
+  }
+}
+
+async function submitPasswordChange(event) {
+  event.preventDefault();
+
+  const nextPassword = String(passwordDialogNewInput?.value || "");
+  const confirmPassword = String(passwordDialogConfirmInput?.value || "");
+
+  if (!nextPassword.trim()) {
+    setStatus("Bitte ein neues Kennwort eingeben.", "error");
+    window.alert("Bitte ein neues Kennwort eingeben.");
+    passwordDialogNewInput?.focus();
+    return;
+  }
+
+  if (nextPassword !== confirmPassword) {
+    setStatus("Die beiden Kennwörter stimmen nicht überein.", "error");
+    window.alert("Die beiden Kennwörter stimmen nicht überein.");
+    passwordDialogConfirmInput?.focus();
+    return;
+  }
+
+  try {
+    const response = await api("/api/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ password: nextPassword })
+    });
+
+    state.settings = response.settings;
+    populateSettingsForm();
+    closePasswordDialog();
+    setStatus("Kennwort wurde geändert.", "success");
+    window.alert("Kennwort wurde erfolgreich geändert.");
+  } catch (error) {
+    setStatus(error.message || "Kennwort konnte nicht geändert werden.", "error");
+    window.alert(error.message || "Kennwort konnte nicht geändert werden.");
   }
 }
 
@@ -2674,6 +2896,10 @@ function bindPanelButtons() {
   panelOverlay.addEventListener("click", closePanels);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (!passwordDialog.hidden) {
+        closePasswordDialog();
+        return;
+      }
       if (!smtpInfoDialog.hidden) {
         closeSmtpInfoDialog();
         return;
@@ -2752,6 +2978,31 @@ function bindDialogs() {
       closeSmtpInfoDialog();
     }
   });
+  closePasswordDialogButton?.addEventListener("click", closePasswordDialog);
+  cancelPasswordDialogButton?.addEventListener("click", closePasswordDialog);
+  passwordDialogForm?.addEventListener("submit", submitPasswordChange);
+  passwordDialogNewInput?.addEventListener("input", updatePasswordDialogValidation);
+  passwordDialogConfirmInput?.addEventListener("input", updatePasswordDialogValidation);
+  togglePasswordDialogNewButton?.addEventListener("click", () => {
+    if (!passwordDialogNewInput) {
+      return;
+    }
+    passwordDialogNewInput.type = passwordDialogNewInput.type === "password" ? "text" : "password";
+    updatePasswordDialogValidation();
+  });
+  togglePasswordDialogConfirmButton?.addEventListener("click", () => {
+    if (!passwordDialogConfirmInput) {
+      return;
+    }
+    passwordDialogConfirmInput.type =
+      passwordDialogConfirmInput.type === "password" ? "text" : "password";
+    updatePasswordDialogValidation();
+  });
+  passwordDialog?.addEventListener("click", (event) => {
+    if (event.target === passwordDialog) {
+      closePasswordDialog();
+    }
+  });
 }
 
 function bindStaticEvents() {
@@ -2766,10 +3017,14 @@ function bindStaticEvents() {
       settingsAuthPasswordInput.type === "password" ? "text" : "password";
     updateSettingsAuthPasswordToggleLabel();
   });
+  changeSettingsPasswordButton?.addEventListener("click", () => {
+    openPasswordDialog();
+  });
   toggleSmtpPassButton?.addEventListener("click", () => {
     smtpPassInput.type = smtpPassInput.type === "password" ? "text" : "password";
     updateSmtpPassToggleLabel();
   });
+  removeInvoiceLogoButton?.addEventListener("click", clearInvoiceLogo);
   addCcEmailButton?.addEventListener("click", () => addCcEmailRow(""));
   ccEmailList?.addEventListener("click", (event) => {
     const removeButton = event.target.closest("[data-remove-cc]");
@@ -2873,6 +3128,7 @@ async function initializeApp() {
   sendDialog.hidden = true;
   signatureDialog.hidden = true;
   smtpInfoDialog.hidden = true;
+  passwordDialog.hidden = true;
   authOverlay.hidden = true;
   if (logoutButton) {
     logoutButton.hidden = true;
@@ -2887,9 +3143,9 @@ async function initializeApp() {
     setStatus("Anmeldedaten konnten nicht geladen werden.", "error");
   }
   setAuthMode("login");
-  settingsFields.authUsername?.closest("fieldset")?.setAttribute("hidden", "");
   normalizeEmailSettingsLayout();
   updateSettingsAuthPasswordToggleLabel();
+  updatePasswordDialogValidation();
   updateSmtpVisibility();
 
   authUsernameInput.value = state.auth.username || "";

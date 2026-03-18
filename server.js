@@ -31,8 +31,8 @@ const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
 const BLOB_STORE_NAME = "rechnungsapp";
 const STORE_BLOB_KEY = "store.json";
 const LOGO_KEYS = {
-  invoice: "assets/KaindlBanner.png",
-  app: "assets/KaindlLogo.png"
+  invoice: "invoice",
+  app: "app"
 };
 const PRESET_USERS = [
   { username: "admin", password: "admin" },
@@ -69,6 +69,10 @@ function createAdminSeedPayload() {
         pass: "",
         fromEmail: "",
         ccEmail: "mathias.mairhofer@gmail.com"
+      },
+      branding: {
+        hasInvoiceLogo: false,
+        hasAppLogo: false
       },
       invoice: {
         title: "Rechnung",
@@ -140,6 +144,10 @@ const DEFAULT_STORE = {
       fromEmail: "",
       ccEmail: ""
     },
+    branding: {
+      hasInvoiceLogo: false,
+      hasAppLogo: false
+    },
     auth: {
       username: "admin",
       password: "admin"
@@ -163,6 +171,8 @@ const DEFAULT_STORE = {
 const DEFAULT_SETTINGS = {
   business: { ...DEFAULT_STORE.settings.business },
   smtp: { ...DEFAULT_STORE.settings.smtp },
+  branding: { ...DEFAULT_STORE.settings.branding },
+  auth: { ...DEFAULT_STORE.settings.auth },
   invoice: { ...DEFAULT_STORE.settings.invoice },
   email: { ...DEFAULT_STORE.settings.email }
 };
@@ -229,6 +239,14 @@ function mergeSettings(raw = {}) {
       ...DEFAULT_SETTINGS.smtp,
       ...(raw.smtp || {})
     },
+    branding: {
+      ...DEFAULT_SETTINGS.branding,
+      ...(raw.branding || {})
+    },
+    auth: {
+      ...DEFAULT_SETTINGS.auth,
+      ...(raw.auth || {})
+    },
     invoice: {
       ...DEFAULT_SETTINGS.invoice,
       ...(raw.invoice || {})
@@ -256,7 +274,13 @@ function createUserRecord({
     id: id || crypto.randomUUID(),
     username: String(username || "").trim() || "admin",
     passwordHash: passwordHash || hashPassword(password),
-    settings: mergeSettings(settings),
+    settings: {
+      ...mergeSettings(settings),
+      auth: {
+        username: String(settings?.auth?.username || username || "admin").trim() || "admin",
+        password: String(settings?.auth?.password || password || "admin")
+      }
+    },
     customers: Array.isArray(customers) ? customers : [],
     articles: Array.isArray(articles) ? articles : [],
     invoices: Array.isArray(invoices) ? invoices : [],
@@ -503,7 +527,12 @@ function sanitizeSettings(settings) {
       smtpPassConfigured: Boolean(settings.smtp.pass)
     },
     auth: {
-      username: ""
+      username: settings.auth?.username || "",
+      password: settings.auth?.password || ""
+    },
+    branding: {
+      hasInvoiceLogo: Boolean(settings.branding?.hasInvoiceLogo),
+      hasAppLogo: Boolean(settings.branding?.hasAppLogo)
     },
     invoice: {
       title: settings.invoice.title,
@@ -704,7 +733,8 @@ function getUserSettingsForClient(user) {
   return {
     ...sanitizeSettings(user.settings),
     auth: {
-      username: user.username
+      username: user.username,
+      password: user.settings?.auth?.password || ""
     }
   };
 }
@@ -836,20 +866,23 @@ function isMailConfigured(mailSettings) {
 }
 
 function getLogoFileName(kind) {
-  return path.basename(LOGO_KEYS[kind] || "");
+  return `${LOGO_KEYS[kind] || kind}.png`;
 }
 
-function getLogoFallbackPath(kind) {
-  if (kind === "app") {
-    return path.join(PUBLIC_ASSET_DIR, "app-maskable.svg");
+function getLogoPlaceholderPath(kind) {
+  return path.join(PUBLIC_ASSET_DIR, kind === "app" ? "app-icon.svg" : "logo-placeholder.svg");
+}
+
+function getUserLogoKey(user, kind) {
+  if (!user?.id || !LOGO_KEYS[kind]) {
+    return "";
   }
 
-  const fileName = getLogoFileName(kind);
-  return fileName ? path.join(PUBLIC_ASSET_DIR, fileName) : path.join(PUBLIC_ASSET_DIR, "app-maskable.svg");
+  return `assets/${user.id}-${LOGO_KEYS[kind]}.png`;
 }
 
-async function readStoredLogo(kind) {
-  const blobKey = LOGO_KEYS[kind];
+async function readStoredLogo(user, kind) {
+  const blobKey = getUserLogoKey(user, kind);
   if (!blobKey) {
     return null;
   }
@@ -861,7 +894,7 @@ async function readStoredLogo(kind) {
     }
   }
 
-  const localPath = path.join(ASSET_STORAGE_DIR, getLogoFileName(kind));
+  const localPath = path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`);
   try {
     return await fs.readFile(localPath);
   } catch {
@@ -869,8 +902,8 @@ async function readStoredLogo(kind) {
   }
 }
 
-async function saveLogoAsset(kind, imageDataUrl) {
-  const blobKey = LOGO_KEYS[kind];
+async function saveLogoAsset(user, kind, imageDataUrl) {
+  const blobKey = getUserLogoKey(user, kind);
   if (!blobKey) {
     throw new Error("Unbekannte Logo-Art.");
   }
@@ -889,7 +922,41 @@ async function saveLogoAsset(kind, imageDataUrl) {
   }
 
   await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
-  await fs.writeFile(path.join(ASSET_STORAGE_DIR, getLogoFileName(kind)), imageBuffer);
+  await fs.writeFile(path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`), imageBuffer);
+  user.settings.branding = {
+    ...(user.settings.branding || {}),
+    [kind === "invoice" ? "hasInvoiceLogo" : "hasAppLogo"]: true
+  };
+}
+
+async function removeLogoAsset(user, kind) {
+  const blobKey = getUserLogoKey(user, kind);
+  if (!blobKey) {
+    throw new Error("Unbekannte Logo-Art.");
+  }
+
+  if (IS_NETLIFY) {
+    const store = await getAppBlobStore();
+    if (store) {
+      try {
+        await store.delete(blobKey);
+      } catch (error) {
+        console.error(`Blob-Löschen fehlgeschlagen (${blobKey}).`, error);
+      }
+    }
+  }
+
+  const localPath = path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`);
+  try {
+    await fs.unlink(localPath);
+  } catch {
+    // Datei war lokal nicht vorhanden
+  }
+
+  user.settings.branding = {
+    ...(user.settings.branding || {}),
+    [kind === "invoice" ? "hasInvoiceLogo" : "hasAppLogo"]: false
+  };
 }
 
 function sanitizeStoredFileInfo(fileInfo) {
@@ -1079,7 +1146,8 @@ async function rebuildInvoiceFilesFromStoredPng(user, invoice) {
   };
 }
 
-function getManifestPayload() {
+function getManifestPayload(token = "") {
+  const appIconPath = appendTokenToPath("/api/assets/logo/app", token);
   return {
     name: "Rechnungen",
     short_name: "Rechnungen",
@@ -1092,7 +1160,7 @@ function getManifestPayload() {
     description: "Mobile Rechnungs-App für Kunden, Leistungen, Vorschau und Versand.",
     icons: [
       {
-        src: "/api/assets/logo/app",
+        src: appIconPath,
         sizes: "1024x1024",
         type: "image/png",
         purpose: "any"
@@ -1273,9 +1341,9 @@ function buildInvoiceRecord(user, payload) {
   };
 }
 
-app.get("/api/manifest.webmanifest", (_req, res) => {
+app.get("/api/manifest.webmanifest", (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.type("application/manifest+json").send(JSON.stringify(getManifestPayload()));
+  res.type("application/manifest+json").send(JSON.stringify(getManifestPayload(getSessionToken(req))));
 });
 
 app.get("/api/assets/logo/:kind", async (req, res, next) => {
@@ -1286,7 +1354,14 @@ app.get("/api/assets/logo/:kind", async (req, res, next) => {
       return;
     }
 
-    const storedLogo = await readStoredLogo(kind);
+    let user = null;
+    const token = getSessionToken(req);
+    if (token) {
+      const store = await readStore();
+      user = findUserBySession(store, token).user || null;
+    }
+
+    const storedLogo = user ? await readStoredLogo(user, kind) : null;
     if (storedLogo) {
       res.setHeader("Cache-Control", "no-store");
       res.type("image/png").send(storedLogo);
@@ -1294,14 +1369,7 @@ app.get("/api/assets/logo/:kind", async (req, res, next) => {
     }
 
     res.setHeader("Cache-Control", "public, max-age=300");
-    const preferredFallback = getLogoFallbackPath(kind);
-    try {
-      await fs.access(preferredFallback);
-      res.sendFile(preferredFallback);
-      return;
-    } catch {
-      res.sendFile(path.join(PUBLIC_ASSET_DIR, "app-maskable.svg"));
-    }
+    res.sendFile(getLogoPlaceholderPath(kind));
   } catch (error) {
     next(error);
   }
@@ -1405,10 +1473,52 @@ app.post("/api/auth/logout", requireAuth, async (req, res, next) => {
   }
 });
 
+app.post("/api/auth/password", requireAuth, async (req, res, next) => {
+  try {
+    const password = String(req.body?.password || "");
+    if (!password.trim()) {
+      res.status(400).json({ error: "Bitte ein neues Kennwort eingeben." });
+      return;
+    }
+
+    req.user.passwordHash = hashPassword(password);
+    req.user.settings.auth = {
+      ...req.user.settings.auth,
+      username: req.user.username,
+      password
+    };
+    req.user.updatedAt = new Date().toISOString();
+
+    await writeStore(req.store);
+    queueGoogleSheetsSync(req.user);
+
+    res.json({
+      ok: true,
+      settings: getUserSettingsForClient(req.user)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
   try {
-    await saveLogoAsset(String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
+    await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
     res.status(201).json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/assets/logo/:kind", requireAuth, async (req, res, next) => {
+  try {
+    await removeLogoAsset(req.user, String(req.params.kind || "").trim());
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
+    queueGoogleSheetsSync(req.user);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
@@ -1426,6 +1536,13 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     currentUser.settings.email = {
       ...currentUser.settings.email,
       ...(incoming.email || {})
+    };
+    currentUser.settings.auth = {
+      ...currentUser.settings.auth,
+      username: currentUser.username,
+      password: incoming.auth?.password
+        ? String(incoming.auth.password)
+        : currentUser.settings.auth?.password || "admin"
     };
     currentUser.settings.invoice = {
       ...currentUser.settings.invoice,
@@ -1445,6 +1562,9 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     currentUser.settings.invoice.counterYear =
       Number(currentUser.settings.invoice.counterYear) || new Date().getFullYear();
     currentUser.settings.invoice.counterValue = Number(currentUser.settings.invoice.counterValue) || 0;
+    if (incoming.auth?.password) {
+      currentUser.passwordHash = hashPassword(String(incoming.auth.password));
+    }
     currentUser.updatedAt = new Date().toISOString();
 
     await writeStore(req.store);

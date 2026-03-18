@@ -25,7 +25,7 @@
         </div>
 
         <div class="tool-rail__brand-wrap">
-          <img class="tool-rail__brand" data-banner-logo src="/api/assets/logo/invoice" alt="Kaindl" />
+          <img class="tool-rail__brand" data-banner-logo src="/assets/logo-placeholder.svg" alt="Logo Platzhalter" />
         </div>
 
         <div class="tool-rail__actions">
@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V0.4.7</div>
+          <div class="app-version" id="appVersion">V0.5.0</div>
         </div>
       </aside>
 
@@ -149,13 +149,10 @@
 
     <div class="auth-overlay" id="authOverlay" hidden>
       <div class="auth-card">
-        <img class="auth-card__logo" data-app-logo src="/api/assets/logo/app" alt="Kaindl App" />
+        <img class="auth-card__logo" data-app-logo src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
         <p class="section-kicker" id="authModeKicker">Anmeldung</p>
         <h2 id="authTitle">Anmelden</h2>
-        <p class="panel-note" id="authText">
-          Lege einmal Benutzername und Kennwort fest. Danach meldet sich die App über Autologin
-          kaindl_daniel, jeweils mit dem Kennwort admin.
-        </p>
+        <p class="panel-note" id="authText">Mit einem vorhandenen Benutzer anmelden.</p>
         <form id="authForm" class="form-grid auth-grid">
           <label>
             Benutzername
@@ -355,7 +352,6 @@
       <div class="side-panel__head">
         <div>
           <p class="section-kicker">Einstellungen</p>
-          <h2>Firma, Zähler und SMTP</h2>
         </div>
         <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
       </div>
@@ -364,26 +360,32 @@
         <fieldset class="settings-section span-2">
           <legend>Benutzer</legend>
           <div class="settings-section__grid">
-            <label>
+            <div class="static-field">
               Benutzername
-              <input name="authUsername" type="text" autocomplete="username" />
-            </label>
+              <div class="static-field__value" id="settingsAuthUsernameDisplay">admin</div>
+              <input name="authUsername" type="hidden" autocomplete="username" />
+            </div>
             <label>
               Kennwort
-              <input
-                name="authPassword"
-                id="settingsAuthPassword"
-                type="password"
-                autocomplete="new-password"
-                placeholder="Leer lassen, um es nicht zu ändern"
-              />
-              <button
-                class="ghost password-toggle password-toggle--icon"
-                id="toggleSettingsAuthPassword"
-                type="button"
-                aria-label="Kennwort anzeigen"
-                title="Kennwort anzeigen"
-              ></button>
+              <div class="password-field">
+                <input
+                  name="authPassword"
+                  id="settingsAuthPassword"
+                  type="password"
+                  autocomplete="new-password"
+                  readonly
+                />
+                <button
+                  class="ghost password-toggle password-toggle--icon"
+                  id="toggleSettingsAuthPassword"
+                  type="button"
+                  aria-label="Kennwort anzeigen"
+                  title="Kennwort anzeigen"
+                ></button>
+              </div>
+              <button class="ghost change-password-button" id="changeSettingsPassword" type="button">
+                Kennwort ändern
+              </button>
             </label>
           </div>
         </fieldset>
@@ -541,10 +543,21 @@
         <fieldset class="settings-section span-2">
           <legend>Logos</legend>
           <div class="settings-section__grid">
+            <div class="logo-preview-card">
+              <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
+              <p class="logo-preview-card__label">Rechnungslogo</p>
+            </div>
+            <div class="logo-preview-card">
+              <img class="logo-preview-card__image" data-settings-logo-preview="app" src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
+              <p class="logo-preview-card__label">App-Logo</p>
+            </div>
             <label>
               Rechnungslogo
               <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
             </label>
+            <div class="logo-action-wrap">
+              <button class="ghost" id="removeInvoiceLogo" type="button">Kein Rechnungslogo verwenden</button>
+            </div>
             <label>
               App-Logo
               <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
@@ -556,7 +569,7 @@
           <button class="primary" type="submit">Einstellungen speichern</button>
           <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V0.4.7</span></div>
+        <div class="settings-version span-2">Version <span id="settingsVersion">V0.5.0</span></div>
       </form>
     </aside>
 
@@ -642,6 +655,62 @@
         <div class="actions dialog-actions">
           <button class="primary" id="confirmSmtpInfoDialog" type="button">Verstanden</button>
         </div>
+      </div>
+    </div>
+
+    <div class="dialog-overlay" id="passwordDialog" hidden>
+      <div class="dialog-card dialog-card--compact">
+        <div class="side-panel__head">
+          <div>
+            <p class="section-kicker">Benutzer</p>
+            <h2>Kennwort ändern</h2>
+          </div>
+          <button class="icon-button" id="closePasswordDialog" type="button" aria-label="Dialog schließen">×</button>
+        </div>
+
+        <form id="passwordDialogForm" class="form-grid settings-grid">
+          <p class="panel-note">
+            Gib dein neues Kennwort ein und bestätige es. Danach wird es sofort für diesen Benutzer gespeichert.
+          </p>
+          <label class="span-2">
+            Neues Kennwort
+            <div class="password-field">
+              <input id="passwordDialogNew" name="password" type="password" autocomplete="new-password" required />
+              <button
+                class="ghost password-toggle password-toggle--icon"
+                id="togglePasswordDialogNew"
+                type="button"
+                aria-label="Neues Kennwort anzeigen"
+                title="Neues Kennwort anzeigen"
+              ></button>
+            </div>
+          </label>
+          <label class="span-2">
+            Kennwort bestätigen
+            <div class="password-field">
+              <input
+                id="passwordDialogConfirm"
+                name="passwordConfirm"
+                type="password"
+                autocomplete="new-password"
+                required
+              />
+              <button
+                class="ghost password-toggle password-toggle--icon"
+                id="togglePasswordDialogConfirm"
+                type="button"
+                aria-label="Kennwort bestätigen anzeigen"
+                title="Kennwort bestätigen anzeigen"
+              ></button>
+            </div>
+            <span class="field-feedback" id="passwordDialogFeedback" aria-live="polite"></span>
+          </label>
+
+          <div class="actions span-2 dialog-actions">
+            <button class="ghost" id="cancelPasswordDialog" type="button">Abbrechen</button>
+            <button class="primary" id="confirmPasswordDialog" type="submit" disabled>Kennwort ändern</button>
+          </div>
+        </form>
       </div>
     </div>
 

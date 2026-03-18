@@ -1508,6 +1508,11 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
         status: "external-app",
         message: "Rechnung erstellt. Die Mail-App kann jetzt geöffnet werden."
       };
+    } else if (deliveryMethod === "share-preview") {
+      emailResult = {
+        status: "share-preview",
+        message: "Rechnung erstellt und zum Teilen vorbereitet."
+      };
     } else {
       try {
         emailResult = await sendInvoiceEmail(req.user, invoice, fileInfo);
@@ -1539,9 +1544,19 @@ app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
     const invoice = buildInvoiceRecord(req.user, req.body || {});
     const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl);
     invoice.files = sanitizeStoredFileInfo(fileInfo);
+    invoice.email = {
+      status: "share-preview",
+      message: "Rechnung erstellt und zum Teilen vorbereitet."
+    };
+
+    req.user.invoices.unshift(invoice);
+    req.user.updatedAt = new Date().toISOString();
+    await writeStore(req.store);
 
     res.status(201).json({
-      invoice: serializeInvoiceForClient(invoice, req.session.token)
+      invoice: serializeInvoiceForClient(invoice, req.session.token),
+      email: invoice.email,
+      settings: getUserSettingsForClient(req.user)
     });
   } catch (error) {
     next(error);

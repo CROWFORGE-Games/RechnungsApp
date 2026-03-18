@@ -2393,7 +2393,31 @@ async function shareInvoiceDraft() {
       body: JSON.stringify(payload)
     });
 
+    state.invoices = [response.invoice, ...state.invoices];
+    if (response.settings) {
+      state.settings = response.settings;
+      state.auth.username = response.settings.auth?.username || state.auth.username;
+      populateSettingsForm();
+    }
+    renderInvoiceHistory();
+    closeSendDialog();
+
     await shareInvoiceFile(response.invoice);
+
+    const preservedCustomerId = state.invoiceDraft.customerId;
+    state.invoiceDraft = {
+      customerId: preservedCustomerId,
+      issueDate: today(),
+      dueDate: addDays(14),
+      reference: "",
+      notes: "",
+      items: [createEmptyItem()],
+      signatureDataUrl: ""
+    };
+    syncInvoiceMetaInputs();
+    renderInvoiceItems();
+    updateInvoiceTotalsDisplay();
+    schedulePreviewRender();
     setStatus("Rechnung wurde zum Teilen vorbereitet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");

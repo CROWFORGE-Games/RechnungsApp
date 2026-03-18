@@ -1,4 +1,4 @@
-const APP_VERSION = "V0.3.6";
+const APP_VERSION = "V0.4.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -112,6 +112,8 @@ const installPrompt = document.getElementById("installPrompt");
 const installPromptText = document.getElementById("installPromptText");
 const dismissInstallPromptButton = document.getElementById("dismissInstallPrompt");
 const installAppButton = document.getElementById("installAppButton");
+const loadingOverlay = document.getElementById("loadingOverlay");
+const loadingOverlayText = document.getElementById("loadingOverlayText");
 const railButtons = [...document.querySelectorAll(".rail-button")];
 const panelElements = [...document.querySelectorAll(".side-panel")];
 const openPanelButtons = [...document.querySelectorAll("[data-open-panel]")];
@@ -446,6 +448,18 @@ function setStatus(message, tone = "info") {
         : "rgba(47, 111, 102, 0.1)";
   statusBanner.style.color =
     tone === "error" ? "#8f3131" : tone === "success" ? "#24583a" : "#2f6f66";
+}
+
+function setLoading(active, message = "Lade Daten...") {
+  if (!loadingOverlay) {
+    return;
+  }
+
+  if (loadingOverlayText) {
+    loadingOverlayText.textContent = message;
+  }
+
+  loadingOverlay.hidden = !active;
 }
 
 function setActiveRail(targetPanelId = null) {
@@ -1315,14 +1329,14 @@ function renderInvoiceItems() {
             </select>
           </td>
           <td data-label="Beschreibung">
-            <div class="invoice-description-fields">
+            <div class="invoice-description-fields invoice-description-fields--two">
               <input name="description" type="text" value="${escapeHtml(item.description)}" placeholder="Leistung" />
               <input name="articleNumber" type="text" value="${escapeHtml(
                 item.articleNumber
               )}" placeholder="Art.-Nr." />
             </div>
           </td>
-          <td data-label="Menge & Einheit">
+          <td data-label="">
             <div class="invoice-field-row invoice-field-row--two">
               <div class="invoice-field-stack">
                 <span class="invoice-field-caption">Menge</span>
@@ -1340,7 +1354,7 @@ function renderInvoiceItems() {
               </div>
             </div>
           </td>
-          <td data-label="Preis, MwSt. & Rabatt">
+          <td data-label="">
             <div class="invoice-field-row invoice-field-row--three">
               <div class="invoice-field-stack">
                 <span class="invoice-field-caption">Nettopreis</span>
@@ -2096,13 +2110,14 @@ function buildClientEmailDraft(invoice, options = {}) {
 
 function buildMailtoLink(invoice) {
   const draft = buildClientEmailDraft(invoice);
+  const recipient = String(draft.customerEmail || "").trim();
   const params = [];
   if (draft.ccEmail) {
     params.push(`cc=${encodeURIComponent(draft.ccEmail)}`);
   }
   params.push(`subject=${encodeURIComponent(draft.subject)}`);
   params.push(`body=${encodeURIComponent(draft.body)}`);
-  return `mailto:${encodeURIComponent(draft.customerEmail)}?${params.join("&")}`;
+  return `mailto:${recipient}?${params.join("&")}`;
 }
 
 async function fetchInvoicePdfFile(invoice) {
@@ -2257,21 +2272,11 @@ async function sendInvoice() {
     populateSettingsForm();
     renderInvoiceHistory();
     closeSendDialog();
-    setStatus(
-      response.email?.message || "Rechnung erstellt. Mail-App wurde geöffnet.",
-      response.email?.status === "sent" ? "success" : "error"
-    );
     if (response.email?.status && response.email.status !== "sent") {
       window.alert(response.email.message || "Mailversand fehlgeschlagen.");
     }
     if (response.email?.status === "external-app" && response.invoice) {
-      const handoffMode = await openExternalMailApp(response.invoice);
-      if (handoffMode === "download+mailto") {
-        setStatus(
-          "PDF wurde heruntergeladen und die Mail-App zum Versand geöffnet.",
-          "success"
-        );
-      }
+      await openExternalMailApp(response.invoice);
     }
 
     const preservedCustomerId = state.invoiceDraft.customerId;
@@ -2288,6 +2293,7 @@ async function sendInvoice() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
+    setStatus("Bereit. Rechnung kann erstellt werden.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht gesendet werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht gesendet werden.");
@@ -2657,6 +2663,7 @@ function bindStaticEvents() {
 }
 
 async function bootstrap() {
+  setLoading(true, "Kunden, Leistungen und Einstellungen werden geladen...");
   try {
     setStatus("Lade Daten...");
     const response = await api("/api/bootstrap");
@@ -2687,6 +2694,8 @@ async function bootstrap() {
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Die App konnte nicht geladen werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -2700,6 +2709,7 @@ async function initializeApp() {
   if (logoutButton) {
     logoutButton.hidden = true;
   }
+  setLoading(true, "App wird vorbereitet...");
   document.body.classList.remove("panel-open");
   try {
     await loadAuthState();
@@ -2720,6 +2730,7 @@ async function initializeApp() {
     return;
   }
 
+  setLoading(false);
   showAuthOverlay();
   setStatus("Bitte anmelden.");
 }

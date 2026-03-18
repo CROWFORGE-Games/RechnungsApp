@@ -994,8 +994,8 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
 
 function getManifestPayload() {
   return {
-    name: "RechnungsApp",
-    short_name: "Rechnung",
+    name: "Rechnungen",
+    short_name: "Rechnungen",
     lang: "de",
     start_url: "/",
     scope: "/",

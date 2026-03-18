@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#3f8a5a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="RechnungsApp" />
-    <title>RechnungsApp</title>
+    <meta name="apple-mobile-web-app-title" content="Rechnungen" />
+    <title>Rechnungen</title>
     <link id="appFavicon" rel="icon" href="/api/assets/logo/app" type="image/png" />
     <link id="appleTouchIcon" rel="apple-touch-icon" href="/api/assets/logo/app" />
     <link rel="manifest" href="/api/manifest.webmanifest" />
@@ -31,15 +31,15 @@
         <div class="tool-rail__actions">
           <button class="rail-button is-active" type="button" data-focus-main>
             <span class="rail-icon rail-icon--invoice" aria-hidden="true"></span>
-            <span class="rail-label">Rechnung</span>
+            <span class="rail-label">Rechnungen</span>
           </button>
           <button class="rail-button" type="button" data-open-panel="customersPanel">
             <span class="rail-icon rail-icon--customers" aria-hidden="true"></span>
-            <span class="rail-label">Kunden</span>
+            <span class="rail-label">Kunde hinzufügen</span>
           </button>
           <button class="rail-button" type="button" data-open-panel="articlesPanel">
             <span class="rail-icon rail-icon--articles" aria-hidden="true"></span>
-            <span class="rail-label">Leistungen</span>
+            <span class="rail-label">Artikel hinzufügen</span>
           </button>
           <button class="rail-button" type="button" data-open-panel="settingsPanel">
             <span class="rail-icon rail-icon--settings" aria-hidden="true"></span>
@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V0.3.6</div>
+          <div class="app-version" id="appVersion">V0.4.0</div>
         </div>
       </aside>
 
@@ -76,14 +76,16 @@
               Kunde
               <select id="invoiceCustomer" name="customerId"></select>
             </label>
-            <label>
-              Rechnungsdatum
-              <input id="issueDate" name="issueDate" type="date" />
-            </label>
-            <label>
-              Fällig am
-              <input id="dueDate" name="dueDate" type="date" />
-            </label>
+            <div class="form-inline-two form-inline-two--equal">
+              <label>
+                Rechnungsdatum
+                <input id="issueDate" name="issueDate" type="date" />
+              </label>
+              <label>
+                Fällig am
+                <input id="dueDate" name="dueDate" type="date" />
+              </label>
+            </div>
             <label>
               Betreff / Vermerk
               <input id="invoiceReference" name="reference" type="text" />
@@ -118,9 +120,11 @@
             <div class="preview-card">
               <div class="preview-head">
                 <h3>Vorschau</h3>
-                <button class="primary" id="createInvoiceButton" type="button">Rechnung erstellen</button>
               </div>
               <canvas id="invoiceCanvas" width="794" height="1123"></canvas>
+              <div class="preview-actions">
+                <button class="primary" id="createInvoiceButton" type="button">Rechnung erstellen</button>
+              </div>
             </div>
 
             <div class="side-card">
@@ -135,6 +139,13 @@
     </div>
 
     <div class="panel-overlay" id="panelOverlay" hidden></div>
+
+    <div class="loading-overlay" id="loadingOverlay" hidden>
+      <div class="loading-overlay__card">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <p class="loading-overlay__text" id="loadingOverlayText">Lade Daten...</p>
+      </div>
+    </div>
 
     <div class="auth-overlay" id="authOverlay" hidden>
       <div class="auth-card">
@@ -164,7 +175,7 @@
     <div class="install-sheet" id="installPrompt" hidden>
       <div class="install-sheet__card">
         <p class="section-kicker">App installieren</p>
-        <h3>RechnungsApp als App nutzen</h3>
+        <h3>Rechnungen als App nutzen</h3>
         <p class="panel-note" id="installPromptText">
           Installiere die App auf deinem Gerät, damit sie ohne Browserleiste wie eine echte App startet.
         </p>
@@ -190,10 +201,16 @@
           Kunden-Nr.
           <input name="customerNumber" type="text" />
         </label>
-        <label>
-          Firmenname
-          <input name="name" type="text" required />
-        </label>
+        <div class="form-inline-two span-2">
+          <label>
+            Firmenname
+            <input name="name" type="text" required />
+          </label>
+          <label>
+            UID
+            <input name="uid" type="text" />
+          </label>
+        </div>
         <label>
           Kontaktperson
           <input name="contactPerson" type="text" />
@@ -202,14 +219,16 @@
           Straße
           <input name="street" type="text" />
         </label>
-        <label>
-          PLZ
-          <input name="postalCode" type="text" />
-        </label>
-        <label>
-          Ort
-          <input name="city" type="text" />
-        </label>
+        <div class="form-inline-two span-2">
+          <label>
+            PLZ
+            <input name="postalCode" type="text" />
+          </label>
+          <label>
+            Ort
+            <input name="city" type="text" />
+          </label>
+        </div>
         <label>
           Land
           <input name="country" type="text" />
@@ -221,10 +240,6 @@
         <label>
           E-Mail
           <input name="email" type="email" />
-        </label>
-        <label>
-          UID
-          <input name="uid" type="text" />
         </label>
         <label class="span-2">
           Notizen
@@ -271,30 +286,34 @@
 
       <form id="articleForm" class="form-grid compact-grid">
         <input type="hidden" name="id" />
-        <label>
-          Gruppe
-          <input name="group" type="text" />
-        </label>
-        <label>
-          Artikel-Nr.
-          <input name="number" type="text" />
-        </label>
+        <div class="form-inline-two span-2">
+          <label>
+            Gruppe
+            <input name="group" type="text" />
+          </label>
+          <label>
+            Artikel-Nr.
+            <input name="number" type="text" />
+          </label>
+        </div>
         <label>
           Bezeichnung
           <input name="name" type="text" required />
         </label>
-        <label>
-          Einheit
-          <input name="unit" type="text" />
-        </label>
-        <label>
-          Nettopreis
-          <input name="unitPrice" type="number" min="0" step="0.01" />
-        </label>
-        <label>
-          MwSt. %
-          <input name="taxRate" type="number" min="0" step="0.01" value="20" />
-        </label>
+        <div class="form-inline-three span-2">
+          <label>
+            Nettopreis
+            <input name="unitPrice" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            Einheit
+            <input name="unit" type="text" />
+          </label>
+          <label>
+            MwSt. %
+            <input name="taxRate" type="number" min="0" step="0.01" value="20" />
+          </label>
+        </div>
         <label class="span-2">
           Beschreibung
           <textarea name="description" rows="3"></textarea>
@@ -628,3 +647,5 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
+
+

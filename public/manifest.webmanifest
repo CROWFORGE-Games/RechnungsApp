@@ -7,12 +7,12 @@
   "display": "standalone",
   "background_color": "#eaf4ee",
   "theme_color": "#3f8a5a",
-  "description": "Mobile Rechnungs-App für Kunden, Leistungen, Vorschau und Versand.",
+  "description": "Mobile Rechnungs-App fuer Kunden, Leistungen, Vorschau und Versand.",
   "icons": [
     {
-      "src": "/assets/KaindlLogo.png",
-      "sizes": "1024x1024",
-      "type": "image/png",
+      "src": "/assets/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any"
     },
     {

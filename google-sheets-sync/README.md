@@ -7,12 +7,12 @@ Diese Apps-Script-Datei verbindet die RechnungsApp mit deinem vorhandenen Google
 
 ## So richtest du es ein
 
-1. In Google Sheets `Erweiterungen -> Apps Script` öffnen.
-2. Den Inhalt von [`Code.gs`](C:/Users/mathi/Documents/Codex/KaindlBilling/google-sheets-sync/Code.gs) komplett einfügen.
-3. In `Code.gs` den Wert `API_SECRET` auf ein eigenes geheimes Kennwort ändern.
+1. In Google Sheets `Erweiterungen -> Apps Script` oeffnen.
+2. Den Inhalt von `google-sheets-sync/Code.gs` komplett einfuegen.
+3. In `Code.gs` den Wert `API_SECRET` auf ein eigenes geheimes Kennwort aendern.
 4. Das Projekt speichern.
 5. `Bereitstellen -> Neue Bereitstellung -> Web-App`
-6. Ausführen als: `Ich`
+6. Ausfuehren als: `Ich`
 7. Zugriff: `Jeder mit dem Link`
 8. Die Web-App-URL kopieren.
 

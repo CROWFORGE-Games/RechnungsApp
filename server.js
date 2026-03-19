@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import express from "express";
-import nodemailer from "nodemailer";
 import { PDFDocument } from "pdf-lib";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,16 +61,6 @@ function createAdminSeedPayload() {
         paymentNote: "Fällig innerhalb von 14 Tagen ohne Abzug.",
         footerNote: "Bitte geben Sie bei der Überweisung die Rechnungsnummer an."
       },
-      smtp: {
-        enabled: false,
-        host: "smtp.gmail.com",
-        port: 587,
-        secure: false,
-        user: "",
-        pass: "",
-        fromEmail: "",
-        ccEmail: "mathias.mairhofer@gmail.com"
-      },
       branding: {
         hasInvoiceLogo: false,
         hasAppLogo: false
@@ -82,6 +71,7 @@ function createAdminSeedPayload() {
         counterValue: 0
       },
       email: {
+        ccEmail: "mathias.mairhofer@gmail.com",
         subjectTemplate: "Rechnung {{invoiceNumber}}",
         bodyTemplate:
           "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
@@ -126,7 +116,7 @@ function createTestUserSeedPayload() {
         addressLine2: "",
         postalCode: "6335",
         city: "Thiersee",
-        country: "Oesterreich",
+        country: "Österreich",
         phone: "+43 660 111111",
         email: "contact@crowforge-games.com",
         uid: "",
@@ -134,18 +124,8 @@ function createTestUserSeedPayload() {
         bic: "",
         bankName: "",
         issuerName: "Test User",
-        paymentNote: "Faellig innerhalb von 14 Tagen ohne Abzug.",
-        footerNote: "Bitte gib bei der Ueberweisung die Rechnungsnummer an."
-      },
-      smtp: {
-        enabled: false,
-        host: "smtp.gmail.com",
-        port: 587,
-        secure: false,
-        user: "",
-        pass: "",
-        fromEmail: "",
-        ccEmail: ""
+        paymentNote: "Fällig innerhalb von 14 Tagen ohne Abzug.",
+        footerNote: "Bitte gib bei der Überweisung die Rechnungsnummer an."
       },
       branding: {
         hasInvoiceLogo: false,
@@ -157,9 +137,10 @@ function createTestUserSeedPayload() {
         counterValue: 0
       },
       email: {
+        ccEmail: "",
         subjectTemplate: "Rechnung {{invoiceNumber}}",
         bodyTemplate:
-          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Gruesse\n{{companyName}}"
+          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
       }
     },
     customers: [
@@ -170,7 +151,7 @@ function createTestUserSeedPayload() {
         street: "Testweg 8",
         postalCode: "6335",
         city: "Thiersee",
-        country: "Oesterreich",
+        country: "Österreich",
         phone: "+43 660 000000",
         email: "contact@crowforge-games.com",
         uid: "",
@@ -300,7 +281,6 @@ function normalizeAdminUser(user) {
     settings: {
       ...user.settings,
       business: { ...DEFAULT_SETTINGS.business },
-      smtp: { ...DEFAULT_SETTINGS.smtp },
       invoice: { ...DEFAULT_SETTINGS.invoice },
       email: { ...DEFAULT_SETTINGS.email },
       branding: {
@@ -348,16 +328,6 @@ const DEFAULT_STORE = {
       paymentNote: "Fällig innerhalb von 14 Tagen ohne Abzug.",
       footerNote: "Bitte geben Sie bei der Überweisung die Rechnungsnummer an."
     },
-    smtp: {
-      enabled: false,
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false,
-      user: "",
-      pass: "",
-      fromEmail: "",
-      ccEmail: ""
-    },
     branding: {
       hasInvoiceLogo: false,
       hasAppLogo: false
@@ -374,6 +344,7 @@ const DEFAULT_STORE = {
       counterValue: 0
     },
     email: {
+      ccEmail: "",
       subjectTemplate: "Rechnung {{invoiceNumber}}",
       bodyTemplate:
         "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
@@ -386,7 +357,6 @@ const DEFAULT_STORE = {
 
 const DEFAULT_SETTINGS = {
   business: { ...DEFAULT_STORE.settings.business },
-  smtp: { ...DEFAULT_STORE.settings.smtp },
   branding: { ...DEFAULT_STORE.settings.branding },
   auth: { ...DEFAULT_STORE.settings.auth },
   invoice: { ...DEFAULT_STORE.settings.invoice },
@@ -442,35 +412,109 @@ function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+const LEGACY_TEXT_REPLACEMENTS = [
+  ["Oesterreich", "Österreich"],
+  ["oesterreich", "österreich"],
+  ["Faellig", "Fällig"],
+  ["faellig", "fällig"],
+  ["Ueberweisung", "Überweisung"],
+  ["ueberweisung", "überweisung"],
+  ["Gruesse", "Grüße"],
+  ["gruesse", "grüße"],
+  ["zurueck", "zurück"],
+  ["Zurueck", "Zurück"],
+  ["geloescht", "gelöscht"],
+  ["Geloescht", "Gelöscht"],
+  ["loeschen", "löschen"],
+  ["Loeschen", "Löschen"],
+  ["geaendert", "geändert"],
+  ["Geaendert", "Geändert"],
+  ["fuer", "für"],
+  ["Fuer", "Für"],
+  ["ueber", "über"],
+  ["Ueber", "Über"],
+  ["verfuegbar", "verfügbar"],
+  ["Verfuegbar", "Verfügbar"],
+  ["bestaetigen", "bestätigen"],
+  ["Bestaetigen", "Bestätigen"]
+];
+
+function normalizeLegacyText(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  let normalized = value;
+  if (/[ÃÂâ]/.test(normalized)) {
+    try {
+      normalized = Buffer.from(normalized, "latin1").toString("utf8");
+    } catch {
+      // Fallback auf den Originaltext.
+    }
+  }
+
+  for (const [source, target] of LEGACY_TEXT_REPLACEMENTS) {
+    normalized = normalized.replaceAll(source, target);
+  }
+
+  return normalized;
+}
+
+function normalizeLegacyData(value) {
+  if (typeof value === "string") {
+    return normalizeLegacyText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeLegacyData(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, normalizeLegacyData(entry)])
+    );
+  }
+
+  return value;
+}
+
+function markUserUpdated(user) {
+  user.updatedAt = new Date().toISOString();
+  return user.updatedAt;
+}
+
+function markUserActivity(user) {
+  const timestamp = markUserUpdated(user);
+  user.lastActivityAt = timestamp;
+  return timestamp;
+}
+
 function hashPassword(password) {
   return crypto.createHash("sha256").update(String(password || "")).digest("hex");
 }
 
 function mergeSettings(raw = {}) {
+  const normalizedRaw = normalizeLegacyData(raw);
   return {
     business: {
       ...DEFAULT_SETTINGS.business,
-      ...(raw.business || {})
-    },
-    smtp: {
-      ...DEFAULT_SETTINGS.smtp,
-      ...(raw.smtp || {})
+      ...(normalizedRaw.business || {})
     },
     branding: {
       ...DEFAULT_SETTINGS.branding,
-      ...(raw.branding || {})
+      ...(normalizedRaw.branding || {})
     },
     auth: {
       ...DEFAULT_SETTINGS.auth,
-      ...(raw.auth || {})
+      ...(normalizedRaw.auth || {})
     },
     invoice: {
       ...DEFAULT_SETTINGS.invoice,
-      ...(raw.invoice || {})
+      ...(normalizedRaw.invoice || {})
     },
     email: {
       ...DEFAULT_SETTINGS.email,
-      ...(raw.email || {})
+      ...(normalizedRaw.email || {})
     }
   };
 }
@@ -485,26 +529,32 @@ function createUserRecord({
   articles,
   invoices,
   createdAt,
-  updatedAt
+  updatedAt,
+  lastActivityAt
 } = {}) {
+  const normalizedSettings = mergeSettings(settings);
+  const normalizedCreatedAt = createdAt || new Date().toISOString();
+  const normalizedUpdatedAt = updatedAt || normalizedCreatedAt;
+
   return {
     id: id || crypto.randomUUID(),
     username: String(username || "").trim() || "admin",
     passwordHash: passwordHash || hashPassword(password),
     settings: {
-      ...mergeSettings(settings),
+      ...normalizedSettings,
       auth: {
-        username: String(settings?.auth?.username || username || "admin").trim() || "admin",
-        password: String(settings?.auth?.password || password || "admin"),
-        defaultUserPassword: String(settings?.auth?.defaultUserPassword || "admin"),
-        adminPasswordVersion: Number(settings?.auth?.adminPasswordVersion || 0)
+        username: String(normalizedSettings?.auth?.username || username || "admin").trim() || "admin",
+        password: String(normalizedSettings?.auth?.password || password || "admin"),
+        defaultUserPassword: String(normalizedSettings?.auth?.defaultUserPassword || "admin"),
+        adminPasswordVersion: Number(normalizedSettings?.auth?.adminPasswordVersion || 0)
       }
     },
-    customers: Array.isArray(customers) ? customers : [],
-    articles: Array.isArray(articles) ? articles : [],
-    invoices: Array.isArray(invoices) ? invoices : [],
-    createdAt: createdAt || new Date().toISOString(),
-    updatedAt: updatedAt || new Date().toISOString()
+    customers: Array.isArray(customers) ? customers.map((entry) => sanitizeCustomer(entry)) : [],
+    articles: Array.isArray(articles) ? articles.map((entry) => sanitizeArticle(entry)) : [],
+    invoices: Array.isArray(invoices) ? normalizeLegacyData(invoices) : [],
+    createdAt: normalizedCreatedAt,
+    updatedAt: normalizedUpdatedAt,
+    lastActivityAt: lastActivityAt || normalizedUpdatedAt
   };
 }
 
@@ -602,7 +652,6 @@ function mergeStore(raw = {}) {
     password: legacySettings.auth?.password || "admin",
     settings: {
       business: legacySettings.business,
-      smtp: legacySettings.smtp,
       invoice: legacySettings.invoice,
       email: legacySettings.email
     },
@@ -769,69 +818,64 @@ async function writeStore(store) {
 }
 
 function sanitizeSettings(settings) {
+  const normalizedSettings = mergeSettings(settings);
   return {
-    business: settings.business,
-    smtp: {
-      enabled: Boolean(settings.smtp.enabled),
-      host: settings.smtp.host,
-      port: Number(settings.smtp.port) || 587,
-      secure: Boolean(settings.smtp.secure),
-      user: settings.smtp.user,
-      pass: settings.smtp.pass,
-      ccEmail: settings.smtp.ccEmail,
-      smtpPassConfigured: Boolean(settings.smtp.pass)
-    },
+    business: normalizedSettings.business,
     auth: {
-      username: settings.auth?.username || "",
-      password: settings.auth?.password || "",
-      defaultUserPassword: settings.auth?.defaultUserPassword || "admin"
+      username: normalizedSettings.auth?.username || "",
+      password: normalizedSettings.auth?.password || "",
+      defaultUserPassword: normalizedSettings.auth?.defaultUserPassword || "admin"
     },
     branding: {
-      hasInvoiceLogo: Boolean(settings.branding?.hasInvoiceLogo),
-      hasAppLogo: Boolean(settings.branding?.hasAppLogo)
+      hasInvoiceLogo: Boolean(normalizedSettings.branding?.hasInvoiceLogo),
+      hasAppLogo: Boolean(normalizedSettings.branding?.hasAppLogo)
     },
     invoice: {
-      title: settings.invoice.title,
-      counterYear: Number(settings.invoice.counterYear) || new Date().getFullYear(),
-      counterValue: Number(settings.invoice.counterValue) || 0
+      title: normalizedSettings.invoice.title,
+      counterYear: Number(normalizedSettings.invoice.counterYear) || new Date().getFullYear(),
+      counterValue: Number(normalizedSettings.invoice.counterValue) || 0
     },
-    email: settings.email
+    email: normalizedSettings.email
   };
 }
 
 function sanitizeCustomer(input = {}) {
+  const normalizedInput = normalizeLegacyData(input);
   return {
-    id: input.id || crypto.randomUUID(),
-    customerNumber: String(input.customerNumber || "").trim(),
-    name: String(input.name || "").trim(),
-    contactPerson: String(input.contactPerson || "").trim(),
-    street: String(input.street || "").trim(),
-    postalCode: String(input.postalCode || "").trim(),
-    city: String(input.city || "").trim(),
-    country: String(input.country || "").trim(),
-    phone: String(input.phone || "").trim(),
-    email: String(input.email || "").trim(),
-    uid: String(input.uid || "").trim(),
-    notes: String(input.notes || "").trim()
+    id: normalizedInput.id || crypto.randomUUID(),
+    customerNumber: String(normalizedInput.customerNumber || "").trim(),
+    name: String(normalizedInput.name || "").trim(),
+    contactPerson: String(normalizedInput.contactPerson || "").trim(),
+    street: String(normalizedInput.street || "").trim(),
+    postalCode: String(normalizedInput.postalCode || "").trim(),
+    city: String(normalizedInput.city || "").trim(),
+    country: String(normalizedInput.country || "").trim(),
+    phone: String(normalizedInput.phone || "").trim(),
+    email: String(normalizedInput.email || "").trim(),
+    uid: String(normalizedInput.uid || "").trim(),
+    notes: String(normalizedInput.notes || "").trim()
   };
 }
 
 function sanitizeArticle(input = {}) {
+  const normalizedInput = normalizeLegacyData(input);
   return {
-    id: input.id || crypto.randomUUID(),
-    group: String(input.group || "").trim(),
-    number: String(input.number || "").trim(),
-    name: String(input.name || "").trim(),
-    description: String(input.description || "").trim(),
-    unit: String(input.unit || "Stunden").trim(),
-    unitPrice: roundCurrency(input.unitPrice || 0),
-    taxRate: Number(input.taxRate ?? 20)
+    id: normalizedInput.id || crypto.randomUUID(),
+    group: String(normalizedInput.group || "").trim(),
+    number: String(normalizedInput.number || "").trim(),
+    name: String(normalizedInput.name || "").trim(),
+    description: String(normalizedInput.description || "").trim(),
+    unit: String(normalizedInput.unit || "Stunden").trim(),
+    unitPrice: roundCurrency(normalizedInput.unitPrice || 0),
+    taxRate: Number(normalizedInput.taxRate ?? 20)
   };
 }
 
 function buildSheetSyncPayload(user) {
   return {
     username: user.username,
+    updatedAt: user.updatedAt,
+    lastActivityAt: user.lastActivityAt || user.updatedAt,
     settings: mergeSettings(user.settings),
     customers: user.customers.map((entry) => sanitizeCustomer(entry)),
     articles: user.articles.map((entry) => sanitizeArticle(entry))
@@ -879,7 +923,12 @@ function applyRemoteUserData(user, remoteData = {}) {
     user.articles = remoteData.articles.map((entry) => sanitizeArticle(entry));
   }
 
-  user.updatedAt = new Date().toISOString();
+  if (remoteData.updatedAt) {
+    user.updatedAt = String(remoteData.updatedAt);
+  }
+  if (remoteData.lastActivityAt) {
+    user.lastActivityAt = String(remoteData.lastActivityAt);
+  }
   return user;
 }
 
@@ -1005,44 +1054,15 @@ async function backfillImportedUsersToGoogleSheets(store) {
   return importedUsersBackfillPromise;
 }
 
-async function fetchGoogleSheetsUserSummaries() {
-  if (!isGoogleSheetsSyncConfigured()) {
-    return [];
-  }
-
-  try {
-    const response = await requestGoogleSheetsSync("listUsers");
-    if (!response?.ok || !Array.isArray(response.users)) {
-      return [];
-    }
-    return response.users;
-  } catch (error) {
-    console.error("Google-Sheets-Benutzerliste fehlgeschlagen.", error);
-    return [];
-  }
-}
-
 async function buildAdminUsersResponse(store) {
-  const remoteUsers = await fetchGoogleSheetsUserSummaries();
-  const remoteByUsername = new Map(
-    remoteUsers.map((entry) => [String(entry.username || "").trim(), entry])
-  );
-
-  return store.users
-    .map((user) => {
-      const remote = remoteByUsername.get(user.username);
-      return serializeAdminUser(user, {
-        lastOnlineAt: remote?.updatedAt || user.updatedAt
-      });
-    })
-    .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
+  return buildAdminUsersLocalResponse(store);
 }
 
 function buildAdminUsersLocalResponse(store) {
   return store.users
     .map((user) =>
       serializeAdminUser(user, {
-        lastOnlineAt: user.updatedAt
+        lastOnlineAt: user.lastActivityAt || user.updatedAt
       })
     )
     .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
@@ -1087,19 +1107,20 @@ function queueGoogleSheetsSync(user) {
 }
 
 function sanitizeItem(input = {}) {
-  const quantity = Number(input.quantity || 0);
-  const unitPrice = roundCurrency(input.unitPrice || 0);
-  const discount = Number(input.discount || 0);
+  const normalizedInput = normalizeLegacyData(input);
+  const quantity = Number(normalizedInput.quantity || 0);
+  const unitPrice = roundCurrency(normalizedInput.unitPrice || 0);
+  const discount = Number(normalizedInput.discount || 0);
   const net = roundCurrency(quantity * unitPrice * Math.max(0, 1 - discount / 100));
-  const taxRate = Number(input.taxRate || 0);
+  const taxRate = Number(normalizedInput.taxRate || 0);
   const tax = roundCurrency(net * (taxRate / 100));
 
   return {
-    id: input.id || crypto.randomUUID(),
-    articleId: String(input.articleId || ""),
-    articleNumber: String(input.articleNumber || "").trim(),
-    description: String(input.description || "").trim(),
-    unit: String(input.unit || "Stunden").trim(),
+    id: normalizedInput.id || crypto.randomUUID(),
+    articleId: String(normalizedInput.articleId || ""),
+    articleNumber: String(normalizedInput.articleNumber || "").trim(),
+    description: String(normalizedInput.description || "").trim(),
+    unit: String(normalizedInput.unit || "Stunden").trim(),
     quantity: roundCurrency(quantity),
     unitPrice,
     discount: roundCurrency(discount),
@@ -1199,7 +1220,7 @@ function serializeAdminUser(user, options = {}) {
     customerCount: Array.isArray(user.customers) ? user.customers.length : 0,
     articleCount: Array.isArray(user.articles) ? user.articles.length : 0,
     invoiceCount: Array.isArray(user.invoices) ? user.invoices.length : 0,
-    lastOnlineAt: String(lastOnlineAt || user.updatedAt || ""),
+    lastOnlineAt: String(lastOnlineAt || user.lastActivityAt || user.updatedAt || ""),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
   };
@@ -1229,26 +1250,12 @@ function compileTemplate(template, tokens) {
   return String(template || "").replace(/\{\{(\w+)\}\}/g, (_, key) => tokens[key] ?? "");
 }
 
-function getMailSettings(settings) {
-  return {
-    enabled: Boolean(settings.smtp.enabled),
-    host: process.env.SMTP_HOST || settings.smtp.host,
-    port: Number(process.env.SMTP_PORT || settings.smtp.port || 587),
-    secure:
-      String(process.env.SMTP_SECURE || settings.smtp.secure || "false").toLowerCase() === "true",
-    user: process.env.SMTP_USER || settings.smtp.user,
-    pass: process.env.SMTP_PASS || settings.smtp.pass,
-    fromEmail: process.env.SMTP_FROM || settings.smtp.user || settings.business.email,
-    ccEmail: process.env.SMTP_CC || settings.smtp.ccEmail || settings.business.email
-  };
-}
-
 function getResendSettings(settings) {
   return {
     apiKey: RESEND_API_KEY,
     fromEmail: RESEND_FROM_EMAIL,
-    ccEmail: RESEND_CC_EMAIL || settings.smtp.ccEmail || settings.business.email,
-    replyTo: settings.business.email || settings.smtp.user || "",
+    ccEmail: RESEND_CC_EMAIL || settings.email?.ccEmail || settings.business.email,
+    replyTo: settings.business.email || "",
     companyName: settings.business.companyName || "Rechnungen"
   };
 }
@@ -1262,16 +1269,6 @@ function splitEmailList(value) {
 
 function isResendConfigured(resendSettings) {
   return Boolean(resendSettings.apiKey && resendSettings.fromEmail);
-}
-
-function isMailConfigured(mailSettings) {
-  return Boolean(
-    mailSettings.enabled &&
-      mailSettings.host &&
-      mailSettings.port &&
-      mailSettings.user &&
-      mailSettings.pass
-  );
 }
 
 function getLogoFileName(kind) {
@@ -1661,55 +1658,9 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
       message: `Rechnung an ${invoice.customer.email} gesendet.`
     };
   }
-
-  const mailSettings = getMailSettings(user.settings);
-  if (!isMailConfigured(mailSettings)) {
-    return {
-      status: "skipped",
-      message: "Weder Resend noch SMTP sind vollständig konfiguriert."
-    };
-  }
-
-  const transport = nodemailer.createTransport({
-    host: mailSettings.host,
-    port: mailSettings.port,
-    secure: mailSettings.secure,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    auth: {
-      user: mailSettings.user,
-      pass: mailSettings.pass
-    }
-  });
-
-  const tokens = {
-    invoiceNumber: invoice.invoiceNumber,
-    customerName: invoice.customer.name,
-    companyName: user.settings.business.companyName
-  };
-
-  const attachments = [];
-  if (fileInfo.pdfBuffer) {
-    attachments.push({
-      filename: `${invoice.invoiceNumber}.pdf`,
-      content: fileInfo.pdfBuffer,
-      contentType: "application/pdf"
-    });
-  }
-
-  await transport.sendMail({
-    from: `"${user.settings.business.companyName || "Rechnungs-App"}" <${mailSettings.fromEmail}>`,
-    to: invoice.customer.email,
-    cc: mailSettings.ccEmail || undefined,
-    subject: compileTemplate(user.settings.email.subjectTemplate, tokens),
-    text: compileTemplate(user.settings.email.bodyTemplate, tokens),
-    attachments
-  });
-
   return {
-    status: "sent",
-    message: `Rechnung an ${invoice.customer.email} gesendet.`
+    status: "skipped",
+    message: "Resend ist nicht vollständig konfiguriert."
   };
 }
 
@@ -1873,16 +1824,6 @@ app.post("/api/auth/login", async (req, res, next) => {
   }
 });
 
-app.post("/api/auth/register", async (req, res, next) => {
-  try {
-    res.status(403).json({
-      error: "Neue Benutzer werden derzeit nicht direkt in der App angelegt."
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 app.get("/api/auth/session", requireAuth, async (req, res, next) => {
   try {
     res.json({ ok: true, username: req.user.username });
@@ -1939,7 +1880,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
       defaultUserPassword: defaultPassword,
       adminPasswordVersion: 1
     };
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     const newUser = createUserRecord({
       username,
       password: defaultPassword,
@@ -1987,7 +1928,7 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
       username: user.username,
       password: defaultPassword
     };
-    user.updatedAt = new Date().toISOString();
+    markUserUpdated(user);
 
     await writeStore(req.store);
     queueGoogleSheetsSync(user);
@@ -2017,7 +1958,7 @@ app.post("/api/auth/password", requireAuth, async (req, res, next) => {
       password,
       adminPasswordVersion: req.user.username === "admin" ? 1 : Number(req.user.settings.auth?.adminPasswordVersion || 0)
     };
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
 
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
@@ -2082,7 +2023,7 @@ app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, r
       defaultUserPassword: password,
       adminPasswordVersion: 1
     };
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
 
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
@@ -2100,7 +2041,7 @@ app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, r
 app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
   try {
     await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     res.status(201).json({ ok: true });
   } catch (error) {
@@ -2111,7 +2052,7 @@ app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
 app.delete("/api/assets/logo/:kind", requireAuth, async (req, res, next) => {
   try {
     await removeLogoAsset(req.user, String(req.params.kind || "").trim());
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.status(204).end();
@@ -2148,23 +2089,13 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
       ...(incoming.invoice || {})
     };
 
-    const currentPass = currentUser.settings.smtp.pass;
-    currentUser.settings.smtp = {
-      ...currentUser.settings.smtp,
-      ...(incoming.smtp || {})
-    };
-    if (!incoming.smtp?.pass) {
-      currentUser.settings.smtp.pass = currentPass;
-    }
-
-    currentUser.settings.smtp.port = Number(currentUser.settings.smtp.port || 587);
     currentUser.settings.invoice.counterYear =
       Number(currentUser.settings.invoice.counterYear) || new Date().getFullYear();
     currentUser.settings.invoice.counterValue = Number(currentUser.settings.invoice.counterValue) || 0;
     if (incoming.auth?.password) {
       currentUser.passwordHash = hashPassword(String(incoming.auth.password));
     }
-    currentUser.updatedAt = new Date().toISOString();
+    markUserActivity(currentUser);
 
     await writeStore(req.store);
     queueGoogleSheetsSync(currentUser);
@@ -2186,7 +2117,7 @@ app.post("/api/customers", requireAuth, async (req, res, next) => {
     }
 
     req.user.customers.push(customer);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.status(201).json({ customer });
@@ -2208,7 +2139,7 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
       ...(req.body?.customer || req.body),
       id: req.params.id
     });
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.json({ customer: req.user.customers[index] });
@@ -2220,7 +2151,7 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
 app.delete("/api/customers/:id", requireAuth, async (req, res, next) => {
   try {
     req.user.customers = req.user.customers.filter((entry) => entry.id !== req.params.id);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.status(204).end();
@@ -2241,7 +2172,7 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
     }
 
     req.user.articles.push(article);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.status(201).json({ article });
@@ -2263,7 +2194,7 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
       ...(req.body?.article || req.body),
       id: req.params.id
     });
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.json({ article: req.user.articles[index] });
@@ -2275,7 +2206,7 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
 app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
   try {
     req.user.articles = req.user.articles.filter((entry) => entry.id !== req.params.id);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsSync(req.user);
     res.status(204).end();
@@ -2315,7 +2246,7 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
 
     invoice.email = emailResult;
     req.user.invoices.unshift(invoice);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
 
     res.status(201).json({
@@ -2339,7 +2270,7 @@ app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
     };
 
     req.user.invoices.unshift(invoice);
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
 
     res.status(201).json({
@@ -2389,7 +2320,7 @@ app.post("/api/invoices/:id/resend", requireAuth, async (req, res, next) => {
     }
 
     invoice.email = emailResult;
-    req.user.updatedAt = new Date().toISOString();
+    markUserActivity(req.user);
     await writeStore(req.store);
 
     res.json({

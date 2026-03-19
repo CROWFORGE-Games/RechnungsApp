@@ -570,12 +570,6 @@ h3 {
   align-items: start;
 }
 
-.smtp-settings-group {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
 .span-2 {
   grid-column: span 2;
 }
@@ -1086,25 +1080,6 @@ th {
   padding: 18px;
   border-radius: 22px;
   background: rgba(247, 252, 249, 0.92);
-}
-
-.info-card {
-  margin-top: 18px;
-  padding: 18px;
-  border-radius: 22px;
-  background: rgba(247, 252, 249, 0.92);
-}
-
-.info-list {
-  margin: 12px 0 0;
-  padding-left: 20px;
-  color: var(--ink);
-  line-height: 1.6;
-}
-
-.info-list a {
-  color: var(--accent-strong);
-  word-break: break-word;
 }
 
 .signature-card__head {
@@ -1745,6 +1720,12 @@ body.panel-open {
 
   .admin-user-row td[data-label="Benutzer"] {
     padding: 0;
+    gap: 0;
+  }
+
+  .admin-user-row td[data-label="Benutzer"]::before {
+    display: none;
+    content: none;
   }
 
   .admin-user-summary {

@@ -1,12 +1,11 @@
-const STATIC_CACHE = "rechnungsapp-static-v44";
+const STATIC_CACHE = "rechnungsapp-static-v45";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
   "/styles.css",
   "/app.js",
   "/manifest.webmanifest",
-  "/assets/KaindlLogo.png",
-  "/assets/KaindlBanner.png",
+  "/assets/app-icon.svg",
   "/assets/app-maskable.svg"
 ];
 
@@ -45,7 +44,7 @@ self.addEventListener("fetch", (event) => {
 
   const isBrandAsset =
     requestUrl.origin === self.location.origin &&
-    ["/assets/KaindlLogo.png", "/assets/KaindlBanner.png"].includes(requestUrl.pathname);
+    ["/assets/app-icon.svg", "/assets/app-maskable.svg"].includes(requestUrl.pathname);
 
   if (isAppShellAsset || isBrandAsset) {
     event.respondWith(

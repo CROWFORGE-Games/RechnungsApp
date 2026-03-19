@@ -5,7 +5,7 @@ Eine mobile Rechnungs-App fuer:
 - Artikel und Leistungen verwalten
 - Rechnungen mit fortlaufender Nummer erzeugen
 - Vorschau, Signatur und PDF-Erstellung
-- Versand per SMTP
+- Versand per Resend oder ueber die Mail-App
 - benutzerspezifische Daten mit Login und Abmelden
 
 ## Lokal starten
@@ -19,7 +19,7 @@ Danach im Browser `http://localhost:3000` aufrufen.
 
 ## Windows per Doppelklick
 
-- `Start-KaindlBilling.bat`
+- `Start-RechnungsApp.bat`
 
 ## Smartphone im lokalen WLAN
 
@@ -36,7 +36,7 @@ Danach im Browser `http://localhost:3000` aufrufen.
 
 ## Netlify-Deployment
 
-Die App ist jetzt fuer Netlify vorbereitet:
+Die App ist weiterhin fuer Netlify vorbereitet:
 - Express laeuft ueber `netlify/functions/api.js`
 - API-Routen werden ueber `netlify.toml` auf die Function umgeleitet
 - Benutzerdaten, Rechnungen, Logos und PDF-Dateien werden auf Netlify in Blobs gespeichert
@@ -48,14 +48,12 @@ Die App ist jetzt fuer Netlify vorbereitet:
    - Build command: `npm install`
    - Publish directory: `public`
 3. Sicherstellen, dass `netlify.toml` verwendet wird.
-4. Unter `Site configuration -> Environment variables` diese Variablen setzen:
-   - `SMTP_HOST` nur wenn du SMTP serverseitig fest vorgeben willst
-   - `SMTP_PORT` optional
-   - `SMTP_SECURE` optional
-   - `SMTP_USER` optional
-   - `SMTP_PASS` optional
-   - `SMTP_FROM` optional
-   - `SMTP_CC` optional
+4. Unter `Site configuration -> Environment variables` nur die benoetigten Variablen setzen, z. B.:
+   - `GOOGLE_SHEETS_WEBAPP_URL`
+   - `GOOGLE_SHEETS_WEBAPP_SECRET`
+   - optional `RESEND_API_KEY`
+   - optional `RESEND_FROM_EMAIL`
+   - optional `RESEND_CC_EMAIL`
 5. Deploy starten.
 
 Hinweis:
@@ -69,25 +67,23 @@ Die Rechnungs-Vorlage kann weiterhin lokal aus diesen Dateien gelesen werden:
 - `public/assets/image.png`
 
 Standard-Logos im Repository:
-- `public/assets/KaindlLogo.png`
-- `public/assets/KaindlBanner.png`
+- `public/assets/app-icon.svg`
+- `public/assets/app-maskable.svg`
+- `public/assets/logo-placeholder.svg`
 
-Wenn du in der App neue Logos hochlaedst, werden diese online in Netlify Blobs gespeichert.
+Wenn du in der App neue Logos hochlaedst, werden diese benutzerspezifisch gespeichert.
 
 ## Mailversand
 
 In der Oberflaeche unter **Einstellungen** eintragen:
-- SMTP Host
-- SMTP Port
-- SMTP User
-- SMTP Passwort
-- CC an eigene E-Mail / weitere Empfänger
+- CC an eigene E-Mail / weitere Empfaenger
+- E-Mail Betreff
+- E-Mail Text
 
-Der Versand erfolgt an die Kundenadresse und zusaetzlich an die eingetragene CC-Liste.
+Direkt in der App versendet wird ueber Resend, wenn es konfiguriert ist. Sonst nutzt die App die Mail-App oder den Teilen-Dialog des Geraets.
 
 ## Hinweise
 
 - Die Rechnungsnummer verwendet das Format `JAHR-00001`.
 - Pro Benutzer werden Kunden, Leistungen, Rechnungen und Einstellungen getrennt gespeichert.
 - PDFs werden aus der gerenderten Vorschau erzeugt.
-

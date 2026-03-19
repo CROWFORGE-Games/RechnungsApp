@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V1.0.4</div>
+          <div class="app-version" id="appVersion">V1.0.5</div>
         </div>
       </aside>
 
@@ -66,7 +66,7 @@
             </div>
             <p class="section-note" id="templateHint" hidden>
               Lege deine Vorlage als `public/assets/invoice-template.png` oder `public/assets/image.png`
-              ab. Das Banner für die Rechnung wird automatisch aus `public/assets/KaindlBanner.png`
+              ab. Logos und App-Symbole werden direkt aus deinen gespeicherten Benutzereinstellungen
               geladen.
             </p>
           </div>
@@ -158,7 +158,7 @@
             </label>
             <div class="actions span-2 panel-form-actions">
               <button class="primary" type="submit">Benutzer anlegen</button>
-              <button class="ghost" id="saveAdminDefaultPassword" type="button">Standardkennwort speichern</button>
+              <button class="ghost" id="saveAdminDefaultPassword" type="button" hidden>Standardkennwort speichern</button>
             </div>
           </form>
 
@@ -521,55 +521,13 @@
           </div>
         </fieldset>
 
-        <fieldset class="settings-section span-2" data-admin-hidden-section="email-smtp">
-          <legend>E-Mail und SMTP</legend>
+        <fieldset class="settings-section span-2" data-admin-hidden-section="email">
+          <legend>E-Mail</legend>
           <div class="settings-section__grid">
             <label class="span-2">
               CC an eigene E-Mail / weitere Empfänger
               <div class="cc-list" id="ccEmailList"></div>
-              <button class="ghost cc-add-button" id="addCcEmailLegacy" type="button" hidden>+ Empfänger</button>
-            </label>
-            <label class="checkbox span-2">
-              <input name="smtpEnabled" id="smtpEnabled" type="checkbox" />
-              SMTP Direktversand aktivieren
-            </label>
-            <div class="smtp-settings-group span-2" id="smtpSettingsGroup" hidden>
-            <label>
-              SMTP Host
-              <input name="smtpHost" type="text" />
-            </label>
-            <label>
-              SMTP Port
-              <input name="smtpPort" type="number" min="1" />
-            </label>
-            <label>
-              <span class="field-title">SMTP User</span>
-              <input name="smtpUser" type="text" />
-            </label>
-            <label>
-              <span class="label-with-action">
-                <span>SMTP Passwort</span>
-                <button class="ghost info-button" id="openSmtpInfo" type="button" aria-label="Hilfe zum SMTP Passwort anzeigen">i</button>
-              </span>
-              <div class="password-field">
-                <input name="smtpPass" id="smtpPass" type="password" />
-                <button
-                  class="ghost password-toggle password-toggle--icon"
-                  id="toggleSmtpPass"
-                  type="button"
-                  aria-label="SMTP Passwort anzeigen"
-                  title="SMTP Passwort anzeigen"
-                ></button>
-              </div>
-            </label>
-            <label>
-              CC an eigene E-Mail / weitere Empfänger
-              <div class="cc-list" id="ccEmailList"></div>
               <button class="ghost cc-add-button" id="addCcEmail" type="button">+ Empfänger</button>
-            </label>
-            <label class="checkbox span-2">
-              <input name="smtpSecure" type="checkbox" />
-              SMTP Secure verwenden
             </label>
             <label class="span-2">
               E-Mail Betreff
@@ -579,7 +537,6 @@
               E-Mail Text
               <textarea name="emailBody" rows="4"></textarea>
             </label>
-            </div>
           </div>
         </fieldset>
 
@@ -613,7 +570,7 @@
           <button class="primary" type="submit">Einstellungen speichern</button>
           <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.4</span></div>
+        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.5</span></div>
       </form>
     </aside>
 
@@ -667,37 +624,6 @@
         <div class="actions dialog-actions">
           <button class="ghost" id="cancelSignatureButton" type="button">Abbrechen</button>
           <button class="primary" id="confirmSignatureButton" type="button">Bestätigen</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="dialog-overlay" id="smtpInfoDialog" hidden>
-      <div class="dialog-card dialog-card--compact">
-        <div class="side-panel__head">
-          <div>
-            <p class="section-kicker">SMTP Hilfe</p>
-            <h2>Google App-Passwort</h2>
-          </div>
-          <button class="icon-button" id="closeSmtpInfoDialog" type="button" aria-label="Dialog schließen">×</button>
-        </div>
-
-        <div class="info-card">
-          <p class="panel-note">So kommst du an das App-Passwort:</p>
-          <ol class="info-list">
-            <li>In deinem Google-Konto die 2-Faktor-Anmeldung aktivieren.</li>
-            <li>
-              Danach App-Passwörter öffnen:
-              <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">
-                myaccount.google.com/apppasswords
-              </a>
-            </li>
-            <li>Ein neues App-Passwort erzeugen.</li>
-            <li>Den 16-stelligen Code ohne Leerzeichen in SMTP Passwort eintragen.</li>
-          </ol>
-        </div>
-
-        <div class="actions dialog-actions">
-          <button class="primary" id="confirmSmtpInfoDialog" type="button">Verstanden</button>
         </div>
       </div>
     </div>

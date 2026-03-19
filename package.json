@@ -1,6 +1,6 @@
 {
-  "name": "kaindl-billing",
-  "version": "1.0.4",
+  "name": "rechnungsapp",
+  "version": "1.0.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,6 @@
   "dependencies": {
     "@netlify/blobs": "^10.7.2",
     "express": "^4.21.2",
-    "nodemailer": "^6.10.1",
     "pdf-lib": "^1.17.1",
     "serverless-http": "^4.0.0"
   }

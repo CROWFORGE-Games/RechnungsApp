@@ -92,10 +92,10 @@ function getUserData_(username) {
     settings: parseJson_(userRow[1], {}),
     customers: customerRows
       .filter((row) => String(row[0] || '').trim() === username)
-      .map((row) => parseJson_(row[2], {})),
+      .map((row) => withEntityId_(parseJson_(row[2], {}), row[1])),
     articles: articleRows
       .filter((row) => String(row[0] || '').trim() === username)
-      .map((row) => parseJson_(row[2], {}))
+      .map((row) => withEntityId_(parseJson_(row[2], {}), row[1]))
   };
 }
 
@@ -198,6 +198,18 @@ function parseJson_(value, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function withEntityId_(payload, fallbackId) {
+  const entry = payload && typeof payload === 'object' ? payload : {};
+  if (entry.id) {
+    return entry;
+  }
+  if (!fallbackId) {
+    return entry;
+  }
+  entry.id = String(fallbackId);
+  return entry;
 }
 
 function jsonResponse(payload, statusCode) {

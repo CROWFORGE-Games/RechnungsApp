@@ -906,21 +906,100 @@ async function requestGoogleSheetsSync(action, payload = {}) {
   return response.json();
 }
 
+function normalizeEntityKeyPart(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildCustomerSyncKey(entry = {}) {
+  return [
+    normalizeEntityKeyPart(entry.customerNumber),
+    normalizeEntityKeyPart(entry.name),
+    normalizeEntityKeyPart(entry.email)
+  ].join("|");
+}
+
+function buildArticleSyncKey(entry = {}) {
+  return [
+    normalizeEntityKeyPart(entry.number),
+    normalizeEntityKeyPart(entry.name),
+    normalizeEntityKeyPart(entry.unit)
+  ].join("|");
+}
+
+function mergeRemoteEntityIds(remoteEntries = [], localEntries = [], buildKey) {
+  const localById = new Map();
+  const localByKey = new Map();
+
+  for (const entry of localEntries) {
+    if (entry?.id) {
+      localById.set(String(entry.id), entry);
+    }
+    const key = buildKey(entry);
+    if (key !== "||") {
+      localByKey.set(key, entry);
+    }
+  }
+
+  let didRepairIds = false;
+  const entries = remoteEntries.map((entry) => {
+    const matchingLocal =
+      (entry?.id && localById.get(String(entry.id))) ||
+      localByKey.get(buildKey(entry));
+
+    if (!entry?.id && matchingLocal?.id) {
+      didRepairIds = true;
+      return {
+        ...entry,
+        id: matchingLocal.id
+      };
+    }
+
+    return entry;
+  });
+
+  return { entries, didRepairIds };
+}
+
+function remoteDataHasMissingEntityIds(remoteData = {}) {
+  const customerIdsMissing = Array.isArray(remoteData?.customers)
+    ? remoteData.customers.some((entry) => !String(entry?.id || "").trim())
+    : false;
+  const articleIdsMissing = Array.isArray(remoteData?.articles)
+    ? remoteData.articles.some((entry) => !String(entry?.id || "").trim())
+    : false;
+
+  return customerIdsMissing || articleIdsMissing;
+}
+
 function applyRemoteUserData(user, remoteData = {}) {
   if (!remoteData || typeof remoteData !== "object") {
-    return user;
+    return { user, repairedIds: false };
   }
+
+  let repairedIds = false;
 
   if (remoteData.settings) {
     user.settings = mergeSettings(remoteData.settings);
   }
 
   if (Array.isArray(remoteData.customers)) {
-    user.customers = remoteData.customers.map((entry) => sanitizeCustomer(entry));
+    const mergedCustomers = mergeRemoteEntityIds(
+      remoteData.customers,
+      user.customers,
+      buildCustomerSyncKey
+    );
+    repairedIds = repairedIds || mergedCustomers.didRepairIds;
+    user.customers = mergedCustomers.entries.map((entry) => sanitizeCustomer(entry));
   }
 
   if (Array.isArray(remoteData.articles)) {
-    user.articles = remoteData.articles.map((entry) => sanitizeArticle(entry));
+    const mergedArticles = mergeRemoteEntityIds(
+      remoteData.articles,
+      user.articles,
+      buildArticleSyncKey
+    );
+    repairedIds = repairedIds || mergedArticles.didRepairIds;
+    user.articles = mergedArticles.entries.map((entry) => sanitizeArticle(entry));
   }
 
   if (remoteData.updatedAt) {
@@ -929,7 +1008,7 @@ function applyRemoteUserData(user, remoteData = {}) {
   if (remoteData.lastActivityAt) {
     user.lastActivityAt = String(remoteData.lastActivityAt);
   }
-  return user;
+  return { user, repairedIds };
 }
 
 async function hydrateUserFromGoogleSheets(store, user) {
@@ -953,8 +1032,12 @@ async function hydrateUserFromGoogleSheets(store, user) {
       return user;
     }
 
-    applyRemoteUserData(user, response.data);
+    const shouldRepairRemoteIds = remoteDataHasMissingEntityIds(response.data);
+    const applyResult = applyRemoteUserData(user, response.data);
     await writeStore(store);
+    if (shouldRepairRemoteIds || applyResult.repairedIds) {
+      await syncUserToGoogleSheets(user);
+    }
   } catch (error) {
     console.error(`Google-Sheets-Import fehlgeschlagen (${user.username}).`, error);
   }
@@ -1665,7 +1748,24 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
 }
 
 function buildInvoiceRecord(user, payload) {
-  const customer = user.customers.find((entry) => entry.id === payload.customerId);
+  const customerSnapshot = normalizeLegacyData(payload.customer || {});
+  const customer =
+    user.customers.find((entry) => entry.id === payload.customerId) ||
+    user.customers.find(
+      (entry) =>
+        customerSnapshot.customerNumber &&
+        String(entry.customerNumber || "").trim() === String(customerSnapshot.customerNumber || "").trim()
+    ) ||
+    user.customers.find(
+      (entry) =>
+        customerSnapshot.email &&
+        String(entry.email || "").trim().toLowerCase() === String(customerSnapshot.email || "").trim().toLowerCase()
+    ) ||
+    user.customers.find(
+      (entry) =>
+        customerSnapshot.name &&
+        String(entry.name || "").trim().toLowerCase() === String(customerSnapshot.name || "").trim().toLowerCase()
+    );
   if (!customer) {
     throw new Error("Der ausgewählte Kunde wurde nicht gefunden.");
   }

@@ -1,4 +1,4 @@
-const STATIC_CACHE = "rechnungsapp-static-v45";
+const STATIC_CACHE = "rechnungsapp-static-v46";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

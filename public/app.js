@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.5";
+const APP_VERSION = "V1.0.6";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -2639,8 +2639,17 @@ function buildMailtoLink(invoice) {
 }
 
 function buildInvoiceRequestPayload(deliveryMethod = "external-app") {
+  const customer = selectedCustomer();
   return {
     customerId: state.invoiceDraft.customerId,
+    customer: customer
+      ? {
+          id: customer.id,
+          customerNumber: customer.customerNumber,
+          name: customer.name,
+          email: customer.email
+        }
+      : null,
     issueDate: state.invoiceDraft.issueDate,
     dueDate: state.invoiceDraft.dueDate,
     reference: state.invoiceDraft.reference,

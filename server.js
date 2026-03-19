@@ -13,10 +13,11 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_ASSET_DIR = path.join(PUBLIC_DIR, "assets");
 const IMPORT_DIR = path.join(__dirname, "google-sheets-sync", "import");
 const IS_NETLIFY = process.env.NETLIFY === "true";
+const IS_CLOUD_RUN = Boolean(process.env.K_SERVICE || process.env.CLOUD_RUN_JOB);
 const STORAGE_ROOT = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
-  : IS_NETLIFY
-    ? path.join(os.tmpdir(), "rechnungsapp")
+  : IS_NETLIFY || IS_CLOUD_RUN
+    ? path.join(os.tmpdir(), "billingapp")
     : path.join(__dirname, "data");
 const DATA_FILE = path.join(STORAGE_ROOT, "store.json");
 const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
@@ -28,7 +29,7 @@ const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECR
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const RESEND_FROM_EMAIL = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
-const BLOB_STORE_NAME = "rechnungsapp";
+const BLOB_STORE_NAME = "billingapp";
 const STORE_BLOB_KEY = "store.json";
 const LOGO_KEYS = {
   invoice: "invoice",
@@ -1339,7 +1340,7 @@ function getResendSettings(settings) {
     fromEmail: RESEND_FROM_EMAIL,
     ccEmail: RESEND_CC_EMAIL || settings.email?.ccEmail || settings.business.email,
     replyTo: settings.business.email || "",
-    companyName: settings.business.companyName || "Rechnungen"
+    companyName: settings.business.companyName || "billingapp"
   };
 }
 
@@ -1638,8 +1639,8 @@ async function rebuildInvoiceFilesFromStoredPng(user, invoice) {
 function getManifestPayload(token = "") {
   const appIconPath = appendTokenToPath("/api/assets/logo/app", token);
   return {
-    name: "Rechnungen",
-    short_name: "Rechnungen",
+    name: "billingapp",
+    short_name: "billingapp",
     lang: "de",
     start_url: "/",
     scope: "/",
@@ -2439,6 +2440,15 @@ app.use((error, _req, res, _next) => {
   });
 });
 
+app.get("/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "billingapp",
+    storageRoot: STORAGE_ROOT,
+    cloudRun: IS_CLOUD_RUN
+  });
+});
+
 app.get("*", (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
@@ -2460,7 +2470,7 @@ if (isDirectRun) {
         urls.push(`http://${entry.address}:${PORT}`);
       });
 
-    console.log("RechnungsApp läuft unter:");
+    console.log("billingapp laeuft unter:");
     urls.forEach((url) => console.log(`- ${url}`));
   });
 }

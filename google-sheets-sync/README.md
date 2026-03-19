@@ -1,6 +1,6 @@
 # Google Sheets Sync
 
-Diese Apps-Script-Datei verbindet die RechnungsApp mit deinem vorhandenen Google Sheet:
+Diese Apps-Script-Datei verbindet die billingapp mit deinem vorhandenen Google Sheet:
 
 - Spreadsheet: `11sTU5OoNFaOkfnKfqzlcqG8O-CdG3OO2OzKMt6CCerY`
 - Tabs: `User`, `Kunden`, `Artikel`
@@ -40,4 +40,4 @@ In Render diese zwei Environment-Variablen setzen:
   - `payload_json`
   - `updated_at`
 
-Die RechnungsApp behandelt `username` als Zuordnung pro Benutzer, z. B. `admin` oder `kaindl_daniel`.
+Die billingapp behandelt `username` als Zuordnung pro Benutzer, z. B. `admin` oder `kaindl_daniel`.

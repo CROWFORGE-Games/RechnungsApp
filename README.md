@@ -1,4 +1,4 @@
-# RechnungsApp
+# billingapp
 
 Eine mobile Rechnungs-App fuer:
 - Kunden anlegen
@@ -19,7 +19,7 @@ Danach im Browser `http://localhost:3000` aufrufen.
 
 ## Windows per Doppelklick
 
-- `Start-RechnungsApp.bat`
+- `Start-billingapp.bat`
 
 ## Smartphone im lokalen WLAN
 

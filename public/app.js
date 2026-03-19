@@ -1,8 +1,8 @@
-const APP_VERSION = "V1.0.6";
+const APP_VERSION = "V1.0.7";
 
 const STORAGE_KEYS = {
-  navCollapsed: "rechnungsapp.navCollapsed",
-  authToken: "rechnungsapp.auth.token"
+  navCollapsed: "billingapp.navCollapsed",
+  authToken: "billingapp.auth.token"
 };
 
 const BRAND_ASSET_URLS = {
@@ -1866,14 +1866,16 @@ function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = I
   return (lineCount + 1) * lineHeight;
 }
 
-function drawFallbackLayout(context, headerShift = 0) {
+function drawFallbackLayout(context, headerShift = 0, showHeaderLine = true) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
   context.strokeStyle = "#222222";
   context.lineWidth = 1.2;
   context.beginPath();
-  context.moveTo(62, 150 + headerShift);
-  context.lineTo(734, 150 + headerShift);
+  if (showHeaderLine) {
+    context.moveTo(62, 150 + headerShift);
+    context.lineTo(734, 150 + headerShift);
+  }
   context.moveTo(62, 980);
   context.lineTo(734, 980);
   context.stroke();
@@ -1918,7 +1920,12 @@ async function renderCanvas() {
   if (template) {
     canvasContext.drawImage(template, 0, 0, invoiceCanvas.width, invoiceCanvas.height);
   } else {
-    drawFallbackLayout(canvasContext, headerShift);
+    drawFallbackLayout(canvasContext, headerShift, Boolean(logo));
+  }
+
+  if (!logo) {
+    canvasContext.fillStyle = "#ffffff";
+    canvasContext.fillRect(58, 146 + headerShift, 680, 8);
   }
 
   const customer = selectedCustomer();

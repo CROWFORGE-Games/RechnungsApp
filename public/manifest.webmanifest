@@ -1,13 +1,13 @@
 {
-  "name": "RechnungsApp",
-  "short_name": "Rechnung",
+  "name": "billingapp",
+  "short_name": "billingapp",
   "lang": "de",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#eaf4ee",
   "theme_color": "#3f8a5a",
-  "description": "Mobile Rechnungs-App fuer Kunden, Leistungen, Vorschau und Versand.",
+  "description": "Mobile billing app fuer Kunden, Leistungen, Vorschau und Versand.",
   "icons": [
     {
       "src": "/assets/app-icon.svg",

@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.3";
+const APP_VERSION = "V1.0.4";
 
 const STORAGE_KEYS = {
   navCollapsed: "rechnungsapp.navCollapsed",
@@ -23,6 +23,7 @@ const state = {
   },
   settings: null,
   adminUsers: [],
+  adminExpandedUsers: [],
   customers: [],
   articles: [],
   invoices: [],
@@ -502,6 +503,7 @@ function resetAuthenticatedState() {
   state.auth.username = "";
   state.settings = null;
   state.adminUsers = [];
+  state.adminExpandedUsers = [];
   state.customers = [];
   state.articles = [];
   state.invoices = [];
@@ -1618,7 +1620,7 @@ function renderArticles() {
     .join("");
 }
 
-function renderAdminUsers() {
+function renderAdminUsersLegacy() {
   if (!adminUsersTable) {
     return;
   }
@@ -1654,6 +1656,74 @@ function renderAdminUsers() {
       `
     )
     .join("");
+}
+
+function renderAdminUsers() {
+  if (!adminUsersTable) {
+    return;
+  }
+
+  if (!state.adminUsers.length) {
+    adminUsersTable.innerHTML = '<tr><td colspan="5" class="empty-state">Noch keine Benutzer vorhanden.</td></tr>';
+    return;
+  }
+
+  adminUsersTable.innerHTML = state.adminUsers
+    .map((user) => {
+      const isExpanded = state.adminExpandedUsers.includes(user.username);
+      const lastOnlineLabel = escapeHtml(formatDateTime(user.lastOnlineAt) || "-");
+      const companyLabel = user.username === "admin" ? "" : escapeHtml(user.companyName || "-");
+      const dataLabel =
+        user.username === "admin"
+          ? ""
+          : escapeHtml(
+              `${user.customerCount || 0} Kunden / ${user.articleCount || 0} Artikel / ${user.invoiceCount || 0} Rechnungen`
+            );
+
+      return `
+        <tr class="admin-user-row${isExpanded ? " is-expanded" : ""}">
+          <td data-label="Benutzer">
+            <button
+              class="ghost admin-user-summary"
+              type="button"
+              data-toggle-admin-user="${escapeHtml(user.username)}"
+              aria-expanded="${isExpanded ? "true" : "false"}"
+            >
+              <strong>${escapeHtml(user.username)}</strong>
+              <span class="admin-user-summary__meta">${lastOnlineLabel}</span>
+            </button>
+          </td>
+          <td data-label="Firma">${companyLabel}</td>
+          <td data-label="Daten">${dataLabel}</td>
+          <td data-label="Zuletzt online">${lastOnlineLabel}</td>
+          <td data-label="Aktion">
+            ${
+              user.username === "admin"
+                ? '<div class="muted-note">Passwort über Einstellungen ändern</div>'
+                : `<div class="row-actions">
+                    <button class="danger" type="button" data-reset-user-password="${escapeHtml(user.username)}">Passwort zurücksetzen</button>
+                    <button class="danger ghost-danger" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer löschen</button>
+                  </div>`
+            }
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function toggleAdminUserExpanded(username) {
+  if (!username) {
+    return;
+  }
+
+  if (state.adminExpandedUsers.includes(username)) {
+    state.adminExpandedUsers = state.adminExpandedUsers.filter((entry) => entry !== username);
+  } else {
+    state.adminExpandedUsers = [...state.adminExpandedUsers, username];
+  }
+
+  renderAdminUsers();
 }
 
 function buildArticleOptions(selectedId) {
@@ -3372,6 +3442,12 @@ function bindStaticEvents() {
     }
   });
   adminUsersTable?.addEventListener("click", async (event) => {
+    const toggleButton = event.target.closest("[data-toggle-admin-user]");
+    if (toggleButton) {
+      toggleAdminUserExpanded(toggleButton.dataset.toggleAdminUser);
+      return;
+    }
+
     const resetButton = event.target.closest("[data-reset-user-password]");
     if (resetButton) {
       await resetAdminUserPassword(resetButton.dataset.resetUserPassword);
@@ -3405,15 +3481,16 @@ function bindStaticEvents() {
 }
 
 async function bootstrap() {
-  setLoading(true, "Verbindung wird hergestellt...");
+  setLoading(true, "Lokale Daten werden geladen...");
   try {
     setStatus("Lade Daten...");
-    await updateLoadingStep("Benutzerdaten werden geladen...");
+    await updateLoadingStep("Lokale Benutzerdaten werden geladen...");
     const response = await api("/api/bootstrap");
     const adminMode = Boolean(response.isAdmin);
     await updateLoadingStep("Einstellungen werden geladen...");
     state.settings = response.settings;
     state.adminUsers = response.adminUsers || [];
+    state.adminExpandedUsers = [];
     if (adminMode) {
       state.customers = [];
       state.articles = [];
@@ -3431,7 +3508,7 @@ async function bootstrap() {
       state.invoiceDraft.customerId = state.customers[0]?.id || "";
     }
 
-    await updateLoadingStep(adminMode ? "Benutzerverwaltung wird vorbereitet..." : "Oberfläche wird vorbereitet...");
+    await updateLoadingStep(adminMode ? "Benutzer werden geladen..." : "Oberfläche wird vorbereitet...");
     populateSettingsForm();
     applyRoleBasedUi();
     refreshBrandAssets();

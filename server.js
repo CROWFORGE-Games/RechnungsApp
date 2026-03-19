@@ -294,6 +294,31 @@ function loadImportedUserSeed(username) {
   };
 }
 
+function normalizeAdminUser(user) {
+  return createUserRecord({
+    ...user,
+    settings: {
+      ...user.settings,
+      business: { ...DEFAULT_SETTINGS.business },
+      smtp: { ...DEFAULT_SETTINGS.smtp },
+      invoice: { ...DEFAULT_SETTINGS.invoice },
+      email: { ...DEFAULT_SETTINGS.email },
+      branding: {
+        ...DEFAULT_SETTINGS.branding,
+        ...(user.settings?.branding || {})
+      },
+      auth: {
+        ...DEFAULT_SETTINGS.auth,
+        ...(user.settings?.auth || {}),
+        username: "admin"
+      }
+    },
+    customers: [],
+    articles: [],
+    invoices: []
+  });
+}
+
 async function getImportedUsernames() {
   try {
     const entries = await fs.readdir(IMPORT_DIR, { withFileTypes: true });
@@ -484,7 +509,11 @@ function createUserRecord({
 }
 
 function applySeedDataIfNeeded(user) {
-  if (!["admin", "kaindl_daniel", "test_user"].includes(user.username)) {
+  if (user.username === "admin") {
+    return normalizeAdminUser(user);
+  }
+
+  if (!["kaindl_daniel", "test_user"].includes(user.username)) {
     return user;
   }
 
@@ -499,11 +528,7 @@ function applySeedDataIfNeeded(user) {
   }
 
   const seed =
-    user.username === "admin"
-      ? createAdminSeedPayload()
-      : user.username === "kaindl_daniel"
-        ? loadImportedUserSeed("kaindl_daniel")
-        : createTestUserSeedPayload();
+    user.username === "kaindl_daniel" ? loadImportedUserSeed("kaindl_daniel") : createTestUserSeedPayload();
 
   if (!seed) {
     return user;
@@ -1010,6 +1035,16 @@ async function buildAdminUsersResponse(store) {
         lastOnlineAt: remote?.updatedAt || user.updatedAt
       });
     })
+    .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
+}
+
+function buildAdminUsersLocalResponse(store) {
+  return store.users
+    .map((user) =>
+      serializeAdminUser(user, {
+        lastOnlineAt: user.updatedAt
+      })
+    )
     .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
 }
 
@@ -1785,13 +1820,9 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
-    await hydrateUserFromGoogleSheets(req.store, req.user);
     const isAdmin = req.user.username === "admin";
-    if (isAdmin) {
-      await backfillImportedUsersToGoogleSheets(req.store);
-    }
-    const adminUsers = isAdmin ? await buildAdminUsersResponse(req.store) : [];
-    res.json({
+    const adminUsers = isAdmin ? buildAdminUsersLocalResponse(req.store) : [];
+    const payload = {
       isAdmin,
       settings: getUserSettingsForClient(req.user),
       customers: isAdmin ? [] : req.user.customers,
@@ -1800,7 +1831,23 @@ app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
       invoices: [...(isAdmin ? [] : req.user.invoices)]
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((invoice) => serializeInvoiceForClient(invoice, req.session.token))
-    });
+    };
+
+    res.json(payload);
+
+    Promise.resolve()
+      .then(async () => {
+        if (isAdmin) {
+          await syncUserToGoogleSheets(req.user);
+          await backfillImportedUsersToGoogleSheets(req.store);
+          return;
+        }
+
+        await hydrateUserFromGoogleSheets(req.store, req.user);
+      })
+      .catch((error) => {
+        console.error(`Hintergrund-Sync fehlgeschlagen (${req.user.username}).`, error);
+      });
   } catch (error) {
     next(error);
   }

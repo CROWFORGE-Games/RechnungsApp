@@ -993,6 +993,40 @@ th {
   gap: 8px;
 }
 
+.admin-user-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+  text-align: left;
+}
+
+.admin-user-summary strong {
+  font-size: 1rem;
+}
+
+.admin-user-summary__meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+@media (min-width: 1181px) {
+  .admin-user-summary {
+    padding: 0;
+    background: transparent;
+  }
+
+  .admin-user-summary__meta {
+    display: none;
+  }
+}
+
 .preview-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.9fr);
@@ -1697,6 +1731,32 @@ body.panel-open {
   .row-actions {
     flex-direction: row;
     width: 100%;
+  }
+
+  .admin-user-row td[data-label="Zuletzt online"] {
+    display: none;
+  }
+
+  .admin-user-row:not(.is-expanded) td[data-label="Firma"],
+  .admin-user-row:not(.is-expanded) td[data-label="Daten"],
+  .admin-user-row:not(.is-expanded) td[data-label="Aktion"] {
+    display: none;
+  }
+
+  .admin-user-row td[data-label="Benutzer"] {
+    padding: 0;
+  }
+
+  .admin-user-summary {
+    min-height: 60px;
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .admin-user-row.is-expanded td[data-label="Firma"],
+  .admin-user-row.is-expanded td[data-label="Daten"],
+  .admin-user-row.is-expanded td[data-label="Aktion"] {
+    display: grid;
   }
 
   .side-panel {

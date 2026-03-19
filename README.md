@@ -1,4 +1,4 @@
-# billingapp
+# RechnungsApp
 
 Eine mobile Rechnungs-App fuer:
 - Kunden anlegen

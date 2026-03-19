@@ -1,14 +1,14 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title billingapp
+title RechnungsApp
 set PORT=3000
 
 netstat -ano | findstr ":3000" >nul 2>nul
 if not errorlevel 1 set PORT=3100
 
 echo.
-echo Starte billingapp...
+echo Starte RechnungsApp...
 echo.
 
 where node >nul 2>nul
@@ -43,5 +43,5 @@ start "" http://localhost:%PORT%
 call npm start
 
 echo.
-echo billingapp wurde beendet.
+echo RechnungsApp wurde beendet.
 pause

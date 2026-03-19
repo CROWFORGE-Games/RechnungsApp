@@ -1340,7 +1340,7 @@ function getResendSettings(settings) {
     fromEmail: RESEND_FROM_EMAIL,
     ccEmail: RESEND_CC_EMAIL || settings.email?.ccEmail || settings.business.email,
     replyTo: settings.business.email || "",
-    companyName: settings.business.companyName || "billingapp"
+    companyName: settings.business.companyName || "RechnungsApp"
   };
 }
 
@@ -1639,8 +1639,8 @@ async function rebuildInvoiceFilesFromStoredPng(user, invoice) {
 function getManifestPayload(token = "") {
   const appIconPath = appendTokenToPath("/api/assets/logo/app", token);
   return {
-    name: "billingapp",
-    short_name: "billingapp",
+    name: "RechnungsApp",
+    short_name: "RechnungsApp",
     lang: "de",
     start_url: "/",
     scope: "/",

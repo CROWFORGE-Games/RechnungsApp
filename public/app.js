@@ -1,8 +1,10 @@
-const APP_VERSION = "V1.0.9";
+const APP_VERSION = "V1.0.10";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
-  authToken: "billingapp.auth.token"
+  authToken: "billingapp.auth.token",
+  authUsername: "billingapp.auth.username",
+  authPassword: "billingapp.auth.password"
 };
 
 const BRAND_ASSET_URLS = {
@@ -280,7 +282,9 @@ let previewTimer = 0;
 let renderNonce = 0;
 let isSignatureDrawing = false;
 let hasSignatureStroke = false;
+let signatureBounds = null;
 let deferredInstallPrompt = null;
+let authRefreshPromise = null;
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -483,9 +487,9 @@ function normalizeArticle(article) {
   };
 }
 
-async function api(url, options = {}) {
+async function performApiRequest(url, options = {}) {
   const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
-  const response = await fetch(url, {
+  return fetch(url, {
     headers: {
       "Content-Type": "application/json",
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
@@ -493,6 +497,78 @@ async function api(url, options = {}) {
     },
     ...options
   });
+}
+
+function getStoredCredentials() {
+  const username = String(window.localStorage.getItem(STORAGE_KEYS.authUsername) || "").trim();
+  const password = String(window.localStorage.getItem(STORAGE_KEYS.authPassword) || "");
+  return username && password ? { username, password } : null;
+}
+
+function persistStoredCredentials(username, password) {
+  window.localStorage.setItem(STORAGE_KEYS.authUsername, String(username || "").trim());
+  window.localStorage.setItem(STORAGE_KEYS.authPassword, String(password || ""));
+}
+
+function clearStoredCredentials() {
+  window.localStorage.removeItem(STORAGE_KEYS.authUsername);
+  window.localStorage.removeItem(STORAGE_KEYS.authPassword);
+}
+
+async function tryAutoLoginFromStoredCredentials() {
+  const credentials = getStoredCredentials();
+  if (!credentials) {
+    return false;
+  }
+
+  if (!authRefreshPromise) {
+    authRefreshPromise = (async () => {
+      try {
+        const response = await performApiRequest("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify(credentials)
+        });
+
+        if (!response.ok) {
+          throw new Error("Automatische Anmeldung fehlgeschlagen.");
+        }
+
+        const data = await response.json();
+        window.localStorage.setItem(STORAGE_KEYS.authToken, data.token);
+        state.auth.hasUser = true;
+        state.auth.authenticated = true;
+        state.auth.username = String(data.username || credentials.username).trim();
+        return true;
+      } catch {
+        clearAuthToken();
+        clearStoredCredentials();
+        state.auth.authenticated = false;
+        state.auth.username = "";
+        return false;
+      } finally {
+        authRefreshPromise = null;
+      }
+    })();
+  }
+
+  return authRefreshPromise;
+}
+
+async function api(url, options = {}) {
+  let response = await performApiRequest(url, options);
+
+  if (
+    !response.ok &&
+    response.status === 401 &&
+    !String(url).includes("/api/auth/login") &&
+    !String(url).includes("/api/auth/session") &&
+    !String(url).includes("/api/auth/logout")
+  ) {
+    const reloginWorked = await tryAutoLoginFromStoredCredentials();
+    if (reloginWorked) {
+      response = await performApiRequest(url, options);
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response
@@ -778,8 +854,12 @@ async function loadAuthState() {
   const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
 
   if (!authToken) {
+    const reloginWorked = await tryAutoLoginFromStoredCredentials();
+    if (reloginWorked) {
+      return;
+    }
     state.auth.authenticated = false;
-    state.auth.username = "";
+    state.auth.username = getStoredCredentials()?.username || "";
     return;
   }
 
@@ -789,8 +869,12 @@ async function loadAuthState() {
     state.auth.authenticated = Boolean(state.auth.username);
   } catch {
     clearAuthToken();
+    const reloginWorked = await tryAutoLoginFromStoredCredentials();
+    if (reloginWorked) {
+      return;
+    }
     state.auth.authenticated = false;
-    state.auth.username = "";
+    state.auth.username = getStoredCredentials()?.username || "";
   }
 }
 
@@ -853,6 +937,51 @@ function clearSignaturePad() {
   signatureContext.lineCap = "round";
   signatureContext.lineJoin = "round";
   hasSignatureStroke = false;
+  signatureBounds = null;
+}
+
+function extendSignatureBounds(point) {
+  if (!point) {
+    return;
+  }
+
+  if (!signatureBounds) {
+    signatureBounds = {
+      minX: point.x,
+      minY: point.y,
+      maxX: point.x,
+      maxY: point.y
+    };
+    return;
+  }
+
+  signatureBounds.minX = Math.min(signatureBounds.minX, point.x);
+  signatureBounds.minY = Math.min(signatureBounds.minY, point.y);
+  signatureBounds.maxX = Math.max(signatureBounds.maxX, point.x);
+  signatureBounds.maxY = Math.max(signatureBounds.maxY, point.y);
+}
+
+function exportSignatureDataUrl() {
+  if (!hasSignatureStroke || !signatureBounds) {
+    return "";
+  }
+
+  const padding = 14;
+  const minX = Math.max(Math.floor(signatureBounds.minX - padding), 0);
+  const minY = Math.max(Math.floor(signatureBounds.minY - padding), 0);
+  const maxX = Math.min(Math.ceil(signatureBounds.maxX + padding), signaturePad.width);
+  const maxY = Math.min(Math.ceil(signatureBounds.maxY + padding), signaturePad.height);
+  const width = Math.max(maxX - minX, 1);
+  const height = Math.max(maxY - minY, 1);
+
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = width;
+  exportCanvas.height = height;
+  const exportContext = exportCanvas.getContext("2d");
+  exportContext.fillStyle = "#ffffff";
+  exportContext.fillRect(0, 0, width, height);
+  exportContext.drawImage(signaturePad, minX, minY, width, height, 0, 0, width, height);
+  return exportCanvas.toDataURL("image/png");
 }
 
 function signaturePointFromEvent(event) {
@@ -2387,6 +2516,7 @@ async function submitPasswordChange(event) {
     });
 
     state.settings = normalizeLegacyData(response.settings);
+    persistStoredCredentials(state.auth.username, nextPassword);
     populateSettingsForm();
     closePasswordDialog();
     setStatus("Kennwort wurde geändert.", "success");
@@ -3023,6 +3153,7 @@ async function handleAuthSubmit(event) {
     );
 
     window.localStorage.setItem(STORAGE_KEYS.authToken, response.token);
+    persistStoredCredentials(username, password);
     state.auth.hasUser = true;
     state.auth.authenticated = true;
     state.auth.username = response.username;
@@ -3088,6 +3219,7 @@ async function handleLogout() {
   }
 
   clearAuthToken();
+  clearStoredCredentials();
   resetAuthenticatedState();
   closeSendDialog();
   closeSignatureDialog();
@@ -3216,6 +3348,7 @@ function bindSignaturePad() {
     signatureContext.beginPath();
     signatureContext.moveTo(point.x, point.y);
     hasSignatureStroke = true;
+    extendSignatureBounds(point);
   });
 
   signaturePad.addEventListener("pointermove", (event) => {
@@ -3226,6 +3359,7 @@ function bindSignaturePad() {
     const point = signaturePointFromEvent(event);
     signatureContext.lineTo(point.x, point.y);
     signatureContext.stroke();
+    extendSignatureBounds(point);
   });
 
   const stopDrawing = () => {
@@ -3246,7 +3380,7 @@ function bindDialogs() {
   closeSignatureDialogButton.addEventListener("click", closeSignatureDialog);
   cancelSignatureButton.addEventListener("click", closeSignatureDialog);
   confirmSignatureButton.addEventListener("click", async () => {
-    state.invoiceDraft.signatureDataUrl = hasSignatureStroke ? signaturePad.toDataURL("image/png") : "";
+    state.invoiceDraft.signatureDataUrl = exportSignatureDataUrl();
     await renderCanvas();
     refreshSendPreview();
     closeSignatureDialog();

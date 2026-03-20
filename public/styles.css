@@ -2101,3 +2101,40 @@ body.panel-open {
     grid-template-columns: 48px minmax(96px, 1fr) 48px;
   }
 }
+
+@media (max-width: 960px) and (orientation: landscape) {
+  #signatureDialog.dialog-overlay {
+    padding: 12px;
+    align-items: center;
+  }
+
+  #signatureDialog .dialog-card--compact {
+    width: min(100%, 960px);
+    min-height: auto;
+    max-height: calc(100dvh - 24px);
+    margin: auto 0;
+    padding: 16px 18px calc(16px + env(safe-area-inset-bottom));
+    border-radius: 24px;
+  }
+
+  #signatureDialog .side-panel__head {
+    position: static;
+    margin: 0 0 14px;
+    padding: 0;
+    background: transparent;
+    backdrop-filter: none;
+  }
+
+  #signatureDialog .signature-card {
+    min-height: auto;
+    margin-top: 0;
+  }
+
+  #signatureDialog #signaturePad {
+    min-height: min(40dvh, 220px);
+  }
+
+  #signatureDialog .dialog-actions {
+    margin-top: 14px;
+  }
+}

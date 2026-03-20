@@ -316,14 +316,6 @@ textarea {
   margin-top: 0;
 }
 
-.logo-remove-button {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 34px;
-  height: 34px;
-  min-height: 34px;
-  padding: 0;
 .logo-remove-button:hover:not(:disabled) {
   background: rgba(255, 222, 222, 0.98);
   border-color: rgba(176, 68, 68, 0.34);

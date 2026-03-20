@@ -12,11 +12,10 @@ const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_ASSET_DIR = path.join(PUBLIC_DIR, "assets");
 const IMPORT_DIR = path.join(__dirname, "google-sheets-sync", "import");
-const IS_NETLIFY = process.env.NETLIFY === "true";
 const IS_CLOUD_RUN = Boolean(process.env.K_SERVICE || process.env.CLOUD_RUN_JOB);
 const STORAGE_ROOT = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
-  : IS_NETLIFY || IS_CLOUD_RUN
+  : IS_CLOUD_RUN
     ? path.join(os.tmpdir(), "billingapp")
     : path.join(__dirname, "data");
 const DATA_FILE = path.join(STORAGE_ROOT, "store.json");
@@ -29,8 +28,6 @@ const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECR
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const RESEND_FROM_EMAIL = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
-const BLOB_STORE_NAME = "billingapp";
-const STORE_BLOB_KEY = "store.json";
 const LOGO_KEYS = {
   invoice: "invoice",
   app: "app"
@@ -372,42 +369,9 @@ const app = express();
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(PUBLIC_DIR));
 
-let blobStoreCache = null;
-let blobStoreFactoryPromise = null;
 const pendingGoogleSheetSyncPayloads = new Map();
 const activeGoogleSheetSyncUsers = new Set();
 let importedUsersBackfillPromise = null;
-
-async function getAppBlobStore() {
-  if (!IS_NETLIFY) {
-    return null;
-  }
-
-  if (!blobStoreFactoryPromise) {
-    blobStoreFactoryPromise = import("@netlify/blobs")
-      .then((module) => module.getStore)
-      .catch((error) => {
-        console.error("Netlify Blobs Paket konnte nicht geladen werden.", error);
-        return null;
-      });
-  }
-
-  const getBlobStore = await blobStoreFactoryPromise;
-  if (!getBlobStore) {
-    return null;
-  }
-
-  try {
-    if (!blobStoreCache) {
-      blobStoreCache = getBlobStore(BLOB_STORE_NAME);
-    }
-  } catch (error) {
-    console.error("Netlify Blobs konnten nicht initialisiert werden.", error);
-    return null;
-  }
-
-  return blobStoreCache;
-}
 
 function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -490,6 +454,12 @@ function markUserActivity(user) {
   return timestamp;
 }
 
+function markUserSeen(user) {
+  const timestamp = new Date().toISOString();
+  user.lastSeenAt = timestamp;
+  return timestamp;
+}
+
 function hashPassword(password) {
   return crypto.createHash("sha256").update(String(password || "")).digest("hex");
 }
@@ -531,7 +501,8 @@ function createUserRecord({
   invoices,
   createdAt,
   updatedAt,
-  lastActivityAt
+  lastActivityAt,
+  lastSeenAt
 } = {}) {
   const normalizedSettings = mergeSettings(settings);
   const normalizedCreatedAt = createdAt || new Date().toISOString();
@@ -555,7 +526,8 @@ function createUserRecord({
     invoices: Array.isArray(invoices) ? normalizeLegacyData(invoices) : [],
     createdAt: normalizedCreatedAt,
     updatedAt: normalizedUpdatedAt,
-    lastActivityAt: lastActivityAt || normalizedUpdatedAt
+    lastActivityAt: lastActivityAt || normalizedUpdatedAt,
+    lastSeenAt: lastSeenAt || ""
   };
 }
 
@@ -696,90 +668,7 @@ function inferMimeType(fileName = "") {
   return "application/octet-stream";
 }
 
-function toArrayBuffer(value) {
-  if (value instanceof ArrayBuffer) {
-    return value;
-  }
-
-  const buffer = value instanceof Uint8Array ? value : Buffer.from(value);
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-}
-
-async function readBlobJson(key) {
-  const store = await getAppBlobStore();
-  if (!store) {
-    return null;
-  }
-  try {
-    return await store.get(key, { type: "json" });
-  } catch (error) {
-    console.error(`Blob-Lesen fehlgeschlagen (${key}).`, error);
-    return null;
-  }
-}
-
-async function writeBlobJson(key, value) {
-  const store = await getAppBlobStore();
-  if (!store) {
-    return false;
-  }
-
-  try {
-    await store.set(key, JSON.stringify(value, null, 2), {
-      metadata: { contentType: "application/json; charset=utf-8" }
-    });
-    return true;
-  } catch (error) {
-    console.error(`Blob-Schreiben fehlgeschlagen (${key}).`, error);
-    return false;
-  }
-}
-
-async function readBlobBinary(key) {
-  const store = await getAppBlobStore();
-  if (!store) {
-    return null;
-  }
-
-  try {
-    const data = await store.get(key, { type: "arrayBuffer" });
-    return data ? Buffer.from(data) : null;
-  } catch (error) {
-    console.error(`Blob-Binärlesen fehlgeschlagen (${key}).`, error);
-    return null;
-  }
-}
-
-async function writeBlobBinary(key, value, contentType) {
-  const store = await getAppBlobStore();
-  if (!store) {
-    return false;
-  }
-
-  try {
-    await store.set(key, toArrayBuffer(value), {
-      metadata: { contentType }
-    });
-    return true;
-  } catch (error) {
-    console.error(`Blob-Binärschreiben fehlgeschlagen (${key}).`, error);
-    return false;
-  }
-}
-
 async function ensureDataFiles() {
-  if (IS_NETLIFY) {
-    const existing = await readBlobJson(STORE_BLOB_KEY);
-    if (existing) {
-      return;
-    }
-
-    const storedInBlobs = await writeBlobJson(STORE_BLOB_KEY, createInitialStore());
-    if (storedInBlobs) {
-      return;
-    }
-  }
-
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
@@ -794,26 +683,12 @@ async function ensureDataFiles() {
 async function readStore() {
   await ensureDataFiles();
 
-  if (IS_NETLIFY) {
-    const raw = await readBlobJson(STORE_BLOB_KEY);
-    if (raw) {
-      return mergeStore(raw);
-    }
-  }
-
   const raw = await fs.readFile(DATA_FILE, "utf8");
   const normalizedRaw = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
   return mergeStore(JSON.parse(normalizedRaw));
 }
 
 async function writeStore(store) {
-  if (IS_NETLIFY) {
-    const storedInBlobs = await writeBlobJson(STORE_BLOB_KEY, store);
-    if (storedInBlobs) {
-      return;
-    }
-  }
-
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8");
 }
@@ -877,6 +752,7 @@ function buildSheetSyncPayload(user) {
     username: user.username,
     updatedAt: user.updatedAt,
     lastActivityAt: user.lastActivityAt || user.updatedAt,
+    lastSeenAt: user.lastSeenAt || "",
     settings: mergeSettings(user.settings),
     customers: user.customers.map((entry) => sanitizeCustomer(entry)),
     articles: user.articles.map((entry) => sanitizeArticle(entry))
@@ -1009,6 +885,9 @@ function applyRemoteUserData(user, remoteData = {}) {
   if (remoteData.lastActivityAt) {
     user.lastActivityAt = String(remoteData.lastActivityAt);
   }
+  if (remoteData.lastSeenAt) {
+    user.lastSeenAt = String(remoteData.lastSeenAt);
+  }
   return { user, repairedIds };
 }
 
@@ -1139,14 +1018,47 @@ async function backfillImportedUsersToGoogleSheets(store) {
 }
 
 async function buildAdminUsersResponse(store) {
-  return buildAdminUsersLocalResponse(store);
+  const users = buildAdminUsersLocalResponse(store);
+  if (!isGoogleSheetsSyncConfigured()) {
+    return users;
+  }
+
+  try {
+    const response = await requestGoogleSheetsSync("listUsers");
+    if (!response?.ok || !Array.isArray(response.users)) {
+      return users;
+    }
+
+    const remoteUsersByName = new Map(
+      response.users.map((entry) => [String(entry.username || "").trim().toLowerCase(), entry])
+    );
+
+    return users.map((user) => {
+      const remoteUser = remoteUsersByName.get(String(user.username || "").trim().toLowerCase());
+      if (!remoteUser?.updatedAt) {
+        return user;
+      }
+
+      return {
+        ...user,
+        lastOnlineAt: String(remoteUser.lastSeenAt || remoteUser.updatedAt || user.lastOnlineAt || ""),
+        schemaVersion: String(remoteUser.schemaVersion || user.schemaVersion || ""),
+        migratedToStructuredColumns: Boolean(
+          remoteUser.migratedToStructuredColumns ?? user.migratedToStructuredColumns
+        )
+      };
+    });
+  } catch (error) {
+    console.error("Google-Sheets-Benutzerliste konnte nicht geladen werden.", error);
+    return users;
+  }
 }
 
 function buildAdminUsersLocalResponse(store) {
   return store.users
     .map((user) =>
       serializeAdminUser(user, {
-        lastOnlineAt: user.lastActivityAt || user.updatedAt
+        lastOnlineAt: user.lastSeenAt || user.lastActivityAt || user.updatedAt
       })
     )
     .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
@@ -1296,7 +1208,11 @@ function getDefaultUserPassword(user) {
 }
 
 function serializeAdminUser(user, options = {}) {
-  const { lastOnlineAt = "" } = options;
+  const {
+    lastOnlineAt = "",
+    schemaVersion = "",
+    migratedToStructuredColumns = false
+  } = options;
   return {
     id: user.id,
     username: user.username,
@@ -1304,7 +1220,9 @@ function serializeAdminUser(user, options = {}) {
     customerCount: Array.isArray(user.customers) ? user.customers.length : 0,
     articleCount: Array.isArray(user.articles) ? user.articles.length : 0,
     invoiceCount: Array.isArray(user.invoices) ? user.invoices.length : 0,
-    lastOnlineAt: String(lastOnlineAt || user.lastActivityAt || user.updatedAt || ""),
+    lastOnlineAt: String(lastOnlineAt || user.lastSeenAt || user.lastActivityAt || user.updatedAt || ""),
+    schemaVersion: String(schemaVersion || ""),
+    migratedToStructuredColumns: Boolean(migratedToStructuredColumns),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
   };
@@ -1377,13 +1295,6 @@ async function readStoredLogo(user, kind) {
     return null;
   }
 
-  if (IS_NETLIFY) {
-    const blob = await readBlobBinary(blobKey);
-    if (blob) {
-      return blob;
-    }
-  }
-
   const localPath = path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`);
   try {
     return await fs.readFile(localPath);
@@ -1404,13 +1315,6 @@ async function saveLogoAsset(user, kind, imageDataUrl) {
 
   const imageBuffer = Buffer.from(String(imageDataUrl).split(",")[1] || "", "base64");
 
-  if (IS_NETLIFY) {
-    const storedInBlobs = await writeBlobBinary(blobKey, imageBuffer, "image/png");
-    if (storedInBlobs) {
-      return;
-    }
-  }
-
   await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
   await fs.writeFile(path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`), imageBuffer);
   user.settings.branding = {
@@ -1424,18 +1328,6 @@ async function removeLogoAsset(user, kind) {
   if (!blobKey) {
     throw new Error("Unbekannte Logo-Art.");
   }
-
-  if (IS_NETLIFY) {
-    const store = await getAppBlobStore();
-    if (store) {
-      try {
-        await store.delete(blobKey);
-      } catch (error) {
-        console.error(`Blob-Löschen fehlgeschlagen (${blobKey}).`, error);
-      }
-    }
-  }
-
   const localPath = path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`);
   try {
     await fs.unlink(localPath);
@@ -1542,24 +1434,6 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
     return builtPdfBuffer;
   }, 3, 200);
 
-  if (IS_NETLIFY) {
-    const pngStored = await withRetry(() => writeBlobBinary(pngKey, pngBuffer, "image/png"), 3, 200);
-    const pdfStored = await withRetry(
-      () => writeBlobBinary(pdfKey, pdfBuffer, "application/pdf"),
-      3,
-      200
-    );
-    if (pngStored && pdfStored) {
-      return {
-        pdfName,
-        pdfUrl: `/api/files/generated/${pdfName}`,
-        pngName,
-        pngUrl: `/api/files/generated/${pngName}`,
-        pdfBuffer
-      };
-    }
-  }
-
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer), 3, 200);
   await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer), 3, 200);
@@ -1607,23 +1481,6 @@ async function rebuildInvoiceFilesFromStoredPng(user, invoice) {
   const pdfName = `${user.id}_${invoice.invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_") + ".pdf";
   const pdfKey = `generated/${pdfName}`;
 
-  if (IS_NETLIFY) {
-    const stored = await withRetry(
-      () => writeBlobBinary(pdfKey, pdfBuffer, "application/pdf"),
-      3,
-      200
-    );
-    if (stored) {
-      return {
-        pdfName,
-        pdfUrl: `/api/files/generated/${pdfName}`,
-        pngName: storedPngName,
-        pngUrl: invoice.files?.pngUrl || `/api/files/generated/${storedPngName}`,
-        pdfBuffer
-      };
-    }
-  }
-
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer), 3, 200);
 
@@ -1647,7 +1504,7 @@ function getManifestPayload(token = "") {
     display: "standalone",
     background_color: "#eaf4ee",
     theme_color: "#3f8a5a",
-    description: "Mobile Rechnungs-App für Kunden, Leistungen, Vorschau und Versand.",
+    description: "Mobile Rechnungs-App für Kunden, Artikel, Vorschau und Versand.",
     icons: [
       {
         src: appIconPath,
@@ -1675,13 +1532,6 @@ function findReferencedFile(user, fileName) {
 }
 
 async function readGeneratedFile(fileName) {
-  if (IS_NETLIFY) {
-    const blob = await readBlobBinary(`generated/${fileName}`);
-    if (blob) {
-      return blob;
-    }
-  }
-
   try {
     return await fs.readFile(path.join(GENERATED_DIR, fileName));
   } catch {
@@ -1873,7 +1723,7 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
     const isAdmin = req.user.username === "admin";
-    const adminUsers = isAdmin ? buildAdminUsersLocalResponse(req.store) : [];
+    const adminUsers = isAdmin ? await buildAdminUsersResponse(req.store) : [];
     const payload = {
       isAdmin,
       settings: getUserSettingsForClient(req.user),
@@ -1917,8 +1767,10 @@ app.post("/api/auth/login", async (req, res, next) => {
       return;
     }
 
+    markUserSeen(user);
     const session = createSession(store, user.id);
     await writeStore(store);
+    queueGoogleSheetsSync(user);
     res.json({ ok: true, username: user.username, token: session.token });
   } catch (error) {
     next(error);
@@ -1927,6 +1779,9 @@ app.post("/api/auth/login", async (req, res, next) => {
 
 app.get("/api/auth/session", requireAuth, async (req, res, next) => {
   try {
+    markUserSeen(req.user);
+    await writeStore(req.store);
+    queueGoogleSheetsSync(req.user);
     res.json({ ok: true, username: req.user.username });
   } catch (error) {
     next(error);
@@ -2474,3 +2329,9 @@ if (isDirectRun) {
     urls.forEach((url) => console.log(`- ${url}`));
   });
 }
+
+
+
+
+
+

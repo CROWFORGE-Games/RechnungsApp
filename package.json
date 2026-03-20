@@ -1,6 +1,6 @@
 {
   "name": "billingapp",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,9 +8,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "@netlify/blobs": "^10.7.2",
     "express": "^4.21.2",
-    "pdf-lib": "^1.17.1",
-    "serverless-http": "^4.0.0"
+    "pdf-lib": "^1.17.1"
   }
 }

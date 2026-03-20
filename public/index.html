@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V1.0.8</div>
+          <div class="app-version" id="appVersion">V1.0.9</div>
         </div>
       </aside>
 
@@ -102,18 +102,18 @@
                 <tr>
                   <th>Artikel</th>
                   <th>Beschreibung</th>
-                  <th>Menge & Einheit</th>
-                  <th>Preis, MwSt. & Rabatt</th>
+                  <th>Menge</th>
+                  <th></th>
                   <th>Summe</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="invoiceItemsTable"></tbody>
             </table>
-            <div class="invoice-items-actions">
-              <div class="totals-chip" id="invoiceTotals">Gesamt: 0,00 EUR</div>
-              <button class="secondary" id="addInvoiceItem" type="button">Leistung hinzufügen</button>
-            </div>
+          </div>
+          <div class="invoice-items-footer">
+            <button class="secondary" id="addInvoiceItem" type="button">Artikel hinzufügen</button>
+            <div class="totals-chip" id="invoiceTotals">Gesamt: 0,00 EUR</div>
           </div>
 
           <div class="preview-layout">
@@ -317,7 +317,7 @@
     <aside class="side-panel" id="articlesPanel" aria-hidden="true">
       <div class="side-panel__head">
         <div>
-          <p class="section-kicker">Leistungen</p>
+          <p class="section-kicker">Artikel</p>
           <h2>Artikel und Preise</h2>
         </div>
         <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
@@ -358,7 +358,7 @@
           <textarea name="description" rows="3"></textarea>
         </label>
         <div class="actions span-2 panel-form-actions">
-          <button class="primary" type="submit">Leistung speichern</button>
+          <button class="primary" type="submit">Artikel speichern</button>
           <button class="ghost" type="button" id="resetArticleForm">Zurücksetzen</button>
         </div>
       </form>
@@ -368,7 +368,7 @@
           <input
             id="articlesSearch"
             type="search"
-            placeholder="Leistungen suchen..."
+            placeholder="Artikel suchen..."
             autocomplete="off"
           />
         </div>
@@ -385,7 +385,7 @@
           <tbody id="articlesTable"></tbody>
         </table>
         <div class="panel-table__actions">
-          <button class="secondary" id="addInvoiceItemInPanel" type="button">Leistung hinzufügen</button>
+          <button class="secondary" id="addInvoiceItemInPanel" type="button">Artikel hinzufügen</button>
         </div>
       </div>
     </aside>
@@ -400,9 +400,9 @@
       </div>
 
       <form id="settingsForm" class="form-grid settings-grid">
-        <fieldset class="settings-section span-2">
-          <legend>Benutzer</legend>
-          <div class="settings-section__grid">
+        <details class="settings-section settings-accordion span-2">
+          <summary class="settings-accordion__summary">Benutzer</summary>
+          <div class="settings-section__grid settings-accordion__content">
             <div class="static-field">
               Benutzername
               <div class="static-field__value" id="settingsAuthUsernameDisplay">admin</div>
@@ -431,11 +431,11 @@
               </button>
             </label>
           </div>
-        </fieldset>
+        </details>
 
-        <fieldset class="settings-section span-2" data-admin-hidden-section="business">
-          <legend>Firma</legend>
-          <div class="settings-section__grid">
+        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="business">
+          <summary class="settings-accordion__summary">Firma</summary>
+          <div class="settings-section__grid settings-accordion__content">
             <label>
               Firmenname
               <input name="companyName" type="text" />
@@ -481,11 +481,11 @@
               <input name="issuerName" type="text" />
             </label>
           </div>
-        </fieldset>
+        </details>
 
-        <fieldset class="settings-section span-2" data-admin-hidden-section="invoice">
-          <legend>Bank und Rechnung</legend>
-          <div class="settings-section__grid">
+        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="bank">
+          <summary class="settings-accordion__summary">Bank</summary>
+          <div class="settings-section__grid settings-accordion__content">
             <label>
               Bank
               <input name="bankName" type="text" />
@@ -498,6 +498,12 @@
               BIC
               <input name="bic" type="text" />
             </label>
+          </div>
+        </details>
+
+        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="invoice">
+          <summary class="settings-accordion__summary">Rechnung</summary>
+          <div class="settings-section__grid settings-accordion__content">
             <label>
               Rechnungs-Titel
               <input name="invoiceTitle" type="text" />
@@ -519,11 +525,11 @@
               <textarea name="footerNote" rows="3"></textarea>
             </label>
           </div>
-        </fieldset>
+        </details>
 
-        <fieldset class="settings-section span-2" data-admin-hidden-section="email">
-          <legend>E-Mail</legend>
-          <div class="settings-section__grid">
+        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="email">
+          <summary class="settings-accordion__summary">E-Mail</summary>
+          <div class="settings-section__grid settings-accordion__content">
             <label class="span-2">
               CC an eigene E-Mail / weitere Empfänger
               <div class="cc-list" id="ccEmailList"></div>
@@ -538,11 +544,11 @@
               <textarea name="emailBody" rows="4"></textarea>
             </label>
           </div>
-        </fieldset>
+        </details>
 
-        <fieldset class="settings-section span-2">
-          <legend>Logos</legend>
-          <div class="settings-section__grid">
+        <details class="settings-section settings-accordion span-2">
+          <summary class="settings-accordion__summary">Logos</summary>
+          <div class="settings-section__grid settings-accordion__content">
             <div class="logo-preview-card" data-logo-card="invoice">
               <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen">×</button>
               <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
@@ -564,13 +570,13 @@
               <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
             </label>
           </div>
-        </fieldset>
+        </details>
 
         <div class="actions span-2 panel-form-actions">
           <button class="primary" type="submit">Einstellungen speichern</button>
           <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.8</span></div>
+        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.9</span></div>
       </form>
     </aside>
 

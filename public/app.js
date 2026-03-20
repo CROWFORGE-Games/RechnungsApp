@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.8";
+const APP_VERSION = "V1.0.9";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -325,7 +325,8 @@ function createEmptyItem() {
     unit: "Stunden",
     unitPrice: 0,
     taxRate: 20,
-    discount: 0
+    discount: 0,
+    detailsExpanded: false
   };
 }
 
@@ -1515,7 +1516,7 @@ function renderArticles() {
   if (!entries.length) {
     articlesTable.innerHTML =
       `<tr><td colspan="5" class="empty-state">${
-        searchTerm ? "Keine passenden Leistungen gefunden." : "Noch keine Leistungen angelegt."
+        searchTerm ? "Keine passenden Artikel gefunden." : "Noch keine Artikel angelegt."
       }</td></tr>`;
     return;
   }
@@ -1560,12 +1561,18 @@ function renderAdminUsers() {
       const isExpanded = state.adminExpandedUsers.includes(user.username);
       const lastOnlineLabel = escapeHtml(formatDateTime(user.lastOnlineAt) || "-");
       const companyLabel = user.username === "admin" ? "" : escapeHtml(user.companyName || "-");
+      const migrationLabel =
+        user.username === "admin"
+          ? ""
+          : `<span class="admin-user-migration${
+              user.migratedToStructuredColumns ? " is-complete" : " is-pending"
+            }">Migration: ${user.migratedToStructuredColumns ? `Schema ${escapeHtml(user.schemaVersion || "2")}` : "Altstand"}</span>`;
       const dataLabel =
         user.username === "admin"
           ? ""
-          : escapeHtml(
+          : `<div>${escapeHtml(
               `${user.customerCount || 0} Kunden / ${user.articleCount || 0} Artikel / ${user.invoiceCount || 0} Rechnungen`
-            );
+            )}</div>${migrationLabel}`;
 
       return `
         <tr class="admin-user-row${isExpanded ? " is-expanded" : ""}">
@@ -1614,7 +1621,7 @@ function toggleAdminUserExpanded(username) {
 }
 
 function buildArticleOptions(selectedId) {
-  const options = ['<option value="">Leistung auswählen</option>'];
+  const options = ['<option value="">Artikel auswählen</option>'];
   for (const article of sortByNumericField(state.articles, "number")) {
     options.push(
       `<option value="${escapeHtml(article.id)}"${
@@ -1626,6 +1633,25 @@ function buildArticleOptions(selectedId) {
   return options.join("");
 }
 
+function buildInvoiceItemMetaSummary(item) {
+  const parts = [];
+  if (item.description) {
+    parts.push(item.description);
+  }
+  if (item.articleNumber) {
+    parts.push(`Art.-Nr. ${item.articleNumber}`);
+  }
+  return parts.join(" · ");
+}
+
+function buildInvoiceItemPricingSummary(item) {
+  const parts = [formatCurrency(item.unitPrice), `MwSt. ${formatAmount(item.taxRate)} %`];
+  if (toNumber(item.discount) > 0) {
+    parts.push(`Rabatt ${formatAmount(item.discount)} %`);
+  }
+  return parts.join(" · ");
+}
+
 function renderInvoiceItems() {
   if (!state.invoiceDraft.items.length) {
     state.invoiceDraft.items = [createEmptyItem()];
@@ -1634,22 +1660,67 @@ function renderInvoiceItems() {
   invoiceItemsTable.innerHTML = state.invoiceDraft.items
     .map((item, index) => {
       const totals = calculateItem(item);
+      const isEditing = Boolean(item.detailsExpanded);
       return `
-        <tr class="invoice-item-row" data-index="${index}">
-          <td data-label="Artikel">
-            <select name="articleId" class="item-article-select">
-              ${buildArticleOptions(item.articleId)}
-            </select>
-          </td>
-          <td data-label="Beschreibung">
-            <div class="invoice-description-fields invoice-description-fields--two">
-              <input name="description" type="text" value="${escapeHtml(item.description)}" placeholder="Leistung" />
-              <input name="articleNumber" type="text" value="${escapeHtml(
-                item.articleNumber
-              )}" placeholder="Art.-Nr." />
+        <tr class="invoice-item-row${isEditing ? " is-editing" : ""}" data-index="${index}">
+          <td data-label="Artikel" colspan="4">
+            <div class="invoice-item-primary">
+              <div class="invoice-item-select-row">
+                <select name="articleId" class="item-article-select">
+                  ${buildArticleOptions(item.articleId)}
+                </select>
+                <button
+                  class="danger invoice-item-remove"
+                  type="button"
+                  data-action="remove-item"
+                  aria-label="Artikel entfernen"
+                  title="Artikel entfernen"
+                >
+                  ×
+                </button>
+              </div>
+              <div class="invoice-item-meta">
+                <div>
+                  <p class="invoice-item-meta__line">${escapeHtml(buildInvoiceItemMetaSummary(item))}</p>
+                  <p class="invoice-item-meta__line invoice-item-meta__line--muted">${escapeHtml(
+                    buildInvoiceItemPricingSummary(item)
+                  )}</p>
+                </div>
+                <button class="ghost invoice-item-meta__toggle" type="button" data-action="toggle-item-details">
+                  ${isEditing ? "Fertig" : "Bearbeiten"}
+                </button>
+              </div>
+              <div class="invoice-item-editor${isEditing ? "" : " is-hidden"}">
+                <div class="invoice-description-fields invoice-description-fields--two">
+                  <input name="description" type="text" value="${escapeHtml(item.description)}" placeholder="Artikel" />
+                  <input name="articleNumber" type="text" value="${escapeHtml(
+                    item.articleNumber
+                  )}" placeholder="Art.-Nr." />
+                </div>
+                <div class="invoice-field-row invoice-field-row--three invoice-item-editor__pricing">
+                  <div class="invoice-field-stack">
+                    <span class="invoice-field-caption">Nettopreis</span>
+                    <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
+                      item.unitPrice
+                    )}" />
+                  </div>
+                  <div class="invoice-field-stack">
+                    <span class="invoice-field-caption">MwSt. %</span>
+                    <input name="taxRate" type="number" min="0" step="0.1" value="${escapeHtml(
+                      item.taxRate
+                    )}" />
+                  </div>
+                  <div class="invoice-field-stack">
+                    <span class="invoice-field-caption">Rabatt %</span>
+                    <input name="discount" type="number" min="0" step="0.01" value="${escapeHtml(
+                      item.discount
+                    )}" />
+                  </div>
+                </div>
+              </div>
             </div>
           </td>
-          <td data-label="">
+          <td>
             <div class="invoice-field-row invoice-field-row--two">
               <div class="invoice-field-stack">
                 <span class="invoice-field-caption">Menge</span>
@@ -1667,35 +1738,10 @@ function renderInvoiceItems() {
               </div>
             </div>
           </td>
-          <td data-label="">
-            <div class="invoice-field-row invoice-field-row--three">
-              <div class="invoice-field-stack">
-                <span class="invoice-field-caption">Nettopreis</span>
-                <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
-                  item.unitPrice
-                )}" />
-              </div>
-              <div class="invoice-field-stack">
-                <span class="invoice-field-caption">MwSt. %</span>
-                <input name="taxRate" type="number" min="0" step="0.1" value="${escapeHtml(
-                  item.taxRate
-                )}" />
-              </div>
-              <div class="invoice-field-stack">
-                <span class="invoice-field-caption">Rabatt %</span>
-                <input name="discount" type="number" min="0" step="0.01" value="${escapeHtml(
-                  item.discount
-                )}" />
-              </div>
-            </div>
-          </td>
           <td data-label="Summe">
             <div class="readonly-chip" data-role="row-total">${escapeHtml(
               formatCurrency(totals.net)
             )}</div>
-          </td>
-          <td data-label="Aktion">
-            <button class="danger" type="button" data-action="remove-item">Löschen</button>
           </td>
         </tr>
       `;
@@ -1746,7 +1792,8 @@ function applyArticleToItem(item, article) {
     return {
       ...item,
       articleId: "",
-      articleNumber: item.articleNumber || ""
+      articleNumber: item.articleNumber || "",
+      detailsExpanded: Boolean(item.detailsExpanded)
     };
   }
 
@@ -1757,7 +1804,8 @@ function applyArticleToItem(item, article) {
     description: article.name || item.description,
     unit: article.unit || item.unit || "Stunden",
     unitPrice: toNumber(article.unitPrice),
-    taxRate: toNumber(article.taxRate, 20)
+    taxRate: toNumber(article.taxRate, 20),
+    detailsExpanded: Boolean(item.detailsExpanded)
   };
 }
 
@@ -2398,10 +2446,10 @@ async function saveArticle(event) {
     renderInvoiceItems();
     resetArticleForm();
     schedulePreviewRender();
-    setStatus("Leistung gespeichert.", "success");
+    setStatus("Artikel gespeichert.", "success");
     closePanelsIfMobile();
   } catch (error) {
-    setStatus(error.message || "Leistung konnte nicht gespeichert werden.", "error");
+    setStatus(error.message || "Artikel konnte nicht gespeichert werden.", "error");
   }
 }
 
@@ -2456,7 +2504,7 @@ async function handleArticleTableClick(event) {
     return;
   }
 
-  if (window.confirm(`Leistung "${article.name}" wirklich löschen?`)) {
+  if (window.confirm(`Artikel "${article.name}" wirklich löschen?`)) {
     try {
       await api(`/api/articles/${article.id}`, { method: "DELETE" });
       state.articles = state.articles.filter((entry) => entry.id !== article.id);
@@ -2467,9 +2515,9 @@ async function handleArticleTableClick(event) {
       renderInvoiceItems();
       updateInvoiceTotalsDisplay();
       schedulePreviewRender();
-      setStatus("Leistung gelöscht.", "success");
+      setStatus("Artikel gelöscht.", "success");
     } catch (error) {
-      setStatus(error.message || "Leistung konnte nicht gelöscht werden.", "error");
+      setStatus(error.message || "Artikel konnte nicht gelöscht werden.", "error");
     }
   }
 }
@@ -2532,6 +2580,26 @@ function handleInvoiceTableChange(event) {
 }
 
 function handleInvoiceTableClick(event) {
+  const detailsButton = event.target.closest('[data-action="toggle-item-details"]');
+  if (detailsButton) {
+    const row = detailsButton.closest("tr[data-index]");
+    if (!row) {
+      return;
+    }
+
+    const index = Number(row.dataset.index);
+    if (!Number.isInteger(index) || !state.invoiceDraft.items[index]) {
+      return;
+    }
+
+    state.invoiceDraft.items[index] = {
+      ...state.invoiceDraft.items[index],
+      detailsExpanded: !state.invoiceDraft.items[index].detailsExpanded
+    };
+    renderInvoiceItems();
+    return;
+  }
+
   const quantityButton = event.target.closest('[data-action="decrease-quantity"], [data-action="increase-quantity"]');
   if (quantityButton) {
     const row = quantityButton.closest("tr[data-index]");
@@ -2808,7 +2876,7 @@ async function shareInvoiceDraft() {
 
     const validItems = getValidInvoiceItems();
     if (!validItems.length) {
-      showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst eine Leistung eintragen.");
+      showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst einen Artikel eintragen.");
       return;
     }
 
@@ -2910,7 +2978,7 @@ async function prepareInvoiceForSend() {
 
   const validItems = getValidInvoiceItems();
   if (!validItems.length) {
-    showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst eine Leistung eintragen.");
+    showInvoiceDraftWarning("Es sind keine Daten vorhanden. Bitte zuerst einen Artikel eintragen.");
     return;
   }
 
@@ -3344,7 +3412,7 @@ async function bootstrap() {
     } else {
       await updateLoadingStep("Kunden werden geladen...");
       state.customers = sortByNumericField(response.customers || [], "customerNumber");
-      await updateLoadingStep("Leistungen werden geladen...");
+      await updateLoadingStep("Artikel werden geladen...");
       state.articles = sortByNumericField((response.articles || []).map(normalizeArticle), "number");
       await updateLoadingStep("Rechnungen werden geladen...");
       state.invoices = normalizeLegacyData(response.invoices || []);
@@ -3428,4 +3496,7 @@ bindInstallPrompt();
 bindStaticEvents();
 registerServiceWorker();
 initializeApp();
+
+
+
 

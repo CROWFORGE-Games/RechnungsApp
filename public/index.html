@@ -560,21 +560,17 @@
           <div class="settings-section__grid settings-accordion__content">
             <label class="logo-upload-field">
               Rechnungslogo
-              <div class="logo-preview-card" data-logo-card="invoice">
-                <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen">×</button>
-                <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
-                <span class="logo-preview-card__empty">Kein Logo</span>
-                <p class="logo-preview-card__label">Vorschau</p>
+              <div class="logo-upload-row" data-logo-card="invoice">
+                <img class="logo-inline-preview" data-settings-logo-preview="invoice" src="" alt="" hidden />
+                <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen" hidden>Entfernen</button>
               </div>
               <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
             </label>
             <label class="logo-upload-field">
               App-Logo
-              <div class="logo-preview-card" data-logo-card="app">
-                <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen">×</button>
-                <img class="logo-preview-card__image" data-settings-logo-preview="app" src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
-                <span class="logo-preview-card__empty">Standardlogo</span>
-                <p class="logo-preview-card__label">Vorschau</p>
+              <div class="logo-upload-row" data-logo-card="app">
+                <img class="logo-inline-preview" data-settings-logo-preview="app" src="" alt="" hidden />
+                <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen" hidden>Entfernen</button>
               </div>
               <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
             </label>

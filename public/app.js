@@ -709,7 +709,7 @@ function applyRoleBasedUi() {
   // Benutzername unter dem Logo in der Nav anzeigen
   const navUserLabel = document.getElementById("navUserLabel");
   if (navUserLabel) {
-    navUserLabel.textContent = state.auth.username || "";
+    navUserLabel.textContent = state.settings?.business?.companyName || state.auth.username || "";
   }
   if (customersRailButton) {
     customersRailButton.hidden = adminMode;
@@ -1406,43 +1406,44 @@ function refreshBrandAssets() {
   const appUrl = appDataUrl || getBrandAssetUrl("app");
   const hasInvoiceLogo = Boolean(state.settings?.branding?.hasInvoiceLogo);
   const hasAppLogo = Boolean(state.settings?.branding?.hasAppLogo);
-  const invoicePreviewUrl = hasInvoiceLogo ? invoiceUrl : EMPTY_IMAGE_DATA_URL;
   const appPreviewUrl = hasAppLogo ? appUrl : APP_LOGO_PLACEHOLDER_URL;
 
-  bannerLogoImages.forEach((image) => {
-    image.src = appPreviewUrl;
-  });
-  appLogoImages.forEach((image) => {
-    image.src = appPreviewUrl;
-  });
+  // App-Logo in Nav/Auth-Bereich
+  bannerLogoImages.forEach((image) => { image.src = appPreviewUrl; });
+  appLogoImages.forEach((image) => { image.src = appPreviewUrl; });
+
+  // Einstellungen: Inline-Vorschau nur wenn Logo vorhanden
   settingsLogoPreviewImages.forEach((image) => {
-    image.src = image.dataset.settingsLogoPreview === "invoice" ? invoicePreviewUrl : appPreviewUrl;
+    const kind = image.dataset.settingsLogoPreview;
+    const hasLogo = kind === "invoice" ? hasInvoiceLogo : hasAppLogo;
+    const url = kind === "invoice" ? invoiceUrl : appUrl;
+    image.hidden = !hasLogo;
+    image.src = hasLogo ? url : "";
   });
-  settingsLogoPreviewCards.forEach((card) => {
-    const kind = card.dataset.logoCard;
-    card.classList.toggle("is-empty", kind === "invoice" ? !hasInvoiceLogo : !hasAppLogo);
-  });
+
+  // Entfernen-Buttons nur sichtbar wenn Logo vorhanden
   if (removeInvoiceLogoButton) {
+    removeInvoiceLogoButton.hidden = !hasInvoiceLogo;
     removeInvoiceLogoButton.disabled = !hasInvoiceLogo;
   }
   if (removeAppLogoButton) {
+    removeAppLogoButton.hidden = !hasAppLogo;
     removeAppLogoButton.disabled = !hasAppLogo;
   }
-  if (appFavicon) {
-    appFavicon.href = appPreviewUrl;
-  }
-  if (appleTouchIcon) {
-    appleTouchIcon.href = appPreviewUrl;
-  }
+
+  // Favicon
+  if (appFavicon) { appFavicon.href = appPreviewUrl; }
+  if (appleTouchIcon) { appleTouchIcon.href = appPreviewUrl; }
+
+  // Manifest mit Cache-Busting → PWA-Icon auf Smartphone aktualisieren
   if (appManifest) {
     const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
     const manifestUrl = new URL("/api/manifest.webmanifest", window.location.origin);
     manifestUrl.searchParams.set("v", String(Date.now()));
-    if (authToken) {
-      manifestUrl.searchParams.set("token", authToken);
-    }
+    if (authToken) { manifestUrl.searchParams.set("token", authToken); }
     appManifest.href = manifestUrl.toString();
   }
+
   logoState.loaded = false;
   logoState.image = null;
 }
@@ -1560,11 +1561,7 @@ async function previewSelectedLogo(kind, file) {
   settingsLogoPreviewImages.forEach((image) => {
     if (image.dataset.settingsLogoPreview === kind) {
       image.src = imageDataUrl;
-    }
-  });
-  settingsLogoPreviewCards.forEach((card) => {
-    if (card.dataset.logoCard === kind) {
-      card.classList.remove("is-empty");
+      image.hidden = false;
     }
   });
   if (kind === "invoice" && removeInvoiceLogoButton) {
@@ -2677,7 +2674,7 @@ async function renderCanvas() {
     canvasContext.textAlign = "right";
     canvasContext.fillText(formatAmount(item.unitPrice), 536, itemY);
     canvasContext.fillText(
-      `${formatAmount(item.quantity)} ${String(item.unit || "Std.").trim()}`,
+      item.unit ? `${formatAmount(item.quantity)} ${String(item.unit).trim()}` : formatAmount(item.quantity),
       644,
       itemY
     );
@@ -2768,11 +2765,14 @@ async function renderCanvas() {
     const signatureImage = await loadInlineImage(state.invoiceDraft.signatureDataUrl).catch(() => null);
     if (signatureImage) {
       const maxWidth = 150;
-      const maxHeight = 56;
+      const maxHeight = 80;
       const ratio = Math.min(maxWidth / signatureImage.width, maxHeight / signatureImage.height, 1);
-      const drawWidth = signatureImage.width * ratio;
-      const drawHeight = signatureImage.height * ratio;
-      canvasContext.drawImage(signatureImage, 560, lastPageOffsetY + PAGE_HEIGHT - 223, drawWidth, drawHeight);
+      const drawWidth = Math.round(signatureImage.width * ratio);
+      const drawHeight = Math.round(signatureImage.height * ratio);
+      // Unterschrift vertikal zentriert im Bereich
+      const sigX = 560;
+      const sigY = lastPageOffsetY + PAGE_HEIGHT - 230 + Math.round((maxHeight - drawHeight) / 2);
+      canvasContext.drawImage(signatureImage, sigX, sigY, drawWidth, drawHeight);
       canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
       canvasContext.fillStyle = "#111111";
       canvasContext.fillText("Kundenunterschrift", 560, lastPageOffsetY + PAGE_HEIGHT - 161);
@@ -3675,6 +3675,7 @@ async function handleAuthSubmit(event) {
 
   const originalText = authSubmit.textContent;
   authSubmit.disabled = true;
+  authSubmit.classList.add("is-loading");
   authSubmit.textContent = "Anmelden…";
 
   try {
@@ -3692,12 +3693,14 @@ async function handleAuthSubmit(event) {
     state.auth.authenticated = true;
     state.auth.username = response.username;
     authForm.reset();
+    authSubmit.classList.remove("is-loading");
     setAuthMode("login");
     hideAuthOverlay();
     await bootstrap();
     return;
   } catch (error) {
     authSubmit.disabled = false;
+    authSubmit.classList.remove("is-loading");
     authSubmit.textContent = originalText;
     const message = error.message || "Benutzername oder Kennwort ist nicht korrekt.";
     setStatus(message, "error");
@@ -3994,7 +3997,7 @@ function bindStaticEvents() {
 
     articleFields.group.value = option.dataset.groupOption || "";
     articleGroupSuggestions.hidden = true;
-    articleFields.group.focus();
+    articleFields.group.blur();
   });
   customersSearchInput?.addEventListener("input", (event) => {
     state.filters.customers = event.target.value || "";
@@ -4076,7 +4079,7 @@ async function bootstrap() {
     state.adminUsers = response.adminUsers || [];
     // Nav-Benutzername aktualisieren
     const _navUserLabel = document.getElementById("navUserLabel");
-    if (_navUserLabel) _navUserLabel.textContent = state.auth.username || "";
+    if (_navUserLabel) _navUserLabel.textContent = state.settings?.business?.companyName || state.auth.username || "";
     state.adminExpandedUsers = [];
     if (adminMode) {
       state.customers = [];
@@ -4099,6 +4102,9 @@ async function bootstrap() {
     populateSettingsForm();
     applyRoleBasedUi();
     refreshBrandAssets();
+    // Firmenname in Einstellungsleiste aktualisieren
+    const _ul = document.getElementById("navUserLabel");
+    if (_ul) _ul.textContent = state.settings?.business?.companyName || state.auth.username || "";
     fillCustomerForm(null, false);
     fillArticleForm(null, false);
     syncInvoiceMetaInputs();

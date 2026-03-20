@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.11";
+const APP_VERSION = "V1.0.12";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -40,32 +40,32 @@ const state = {
     dueDate: addDays(14),
     reference: "",
     notes: "",
-    items: [createEmptyItem()],
+    items: [],
     signatureDataUrl: ""
   }
 };
 
 const LEGACY_TEXT_REPLACEMENTS = [
-  ["Oesterreich", "Österreich"],
-  ["oesterreich", "österreich"],
-  ["Faellig", "Fällig"],
-  ["faellig", "fällig"],
-  ["Ueberweisung", "Überweisung"],
-  ["ueberweisung", "überweisung"],
-  ["Gruesse", "Grüße"],
-  ["gruesse", "grüße"],
-  ["zurueck", "zurück"],
-  ["Zurueck", "Zurück"],
-  ["geloescht", "gelöscht"],
-  ["Geloescht", "Gelöscht"],
-  ["loeschen", "löschen"],
-  ["Loeschen", "Löschen"],
-  ["geaendert", "geändert"],
-  ["Geaendert", "Geändert"],
-  ["verfuegbar", "verfügbar"],
-  ["Verfuegbar", "Verfügbar"],
-  ["bestaetigen", "bestätigen"],
-  ["Bestaetigen", "Bestätigen"]
+  ["Oesterreich", "\u00D6sterreich"],
+  ["oesterreich", "\u00D6sterreich"],
+  ["Faellig", "F\u00E4llig"],
+  ["faellig", "f\u00E4llig"],
+  ["Ueberweisung", "\u00DCberweisung"],
+  ["ueberweisung", "\u00DCberweisung"],
+  ["Gruesse", "Gr\u00FC\u00DFe"],
+  ["gruesse", "gr\u00FC\u00DFe"],
+  ["zurueck", "zur\u00FCck"],
+  ["Zurueck", "Zur\u00FCck"],
+  ["geloescht", "gel\u00F6scht"],
+  ["Geloescht", "Gel\u00F6scht"],
+  ["loeschen", "l\u00F6schen"],
+  ["Loeschen", "L\u00F6schen"],
+  ["geaendert", "ge\u00E4ndert"],
+  ["Geaendert", "Ge\u00E4ndert"],
+  ["verfuegbar", "verf\u00FCgbar"],
+  ["Verfuegbar", "Verf\u00FCgbar"],
+  ["bestaetigen", "best\u00E4tigen"],
+  ["Bestaetigen", "Best\u00E4tigen"]
 ];
 
 function normalizeLegacyText(value) {
@@ -74,13 +74,27 @@ function normalizeLegacyText(value) {
   }
 
   let normalized = value;
-  if (/[ÃÂâ]/.test(normalized)) {
+  if (normalized.includes("?")) {
     try {
       normalized = decodeURIComponent(escape(normalized));
     } catch {
       // Fallback auf den Originaltext.
     }
   }
+
+  normalized = normalized
+    .replaceAll("?sterreich", "\u00D6sterreich")
+    .replaceAll("?berweisung", "\u00DCberweisung")
+    .replaceAll("Gr\uFFFD?e", "Gr\u00FC\u00DFe")
+    .replaceAll("gr\uFFFD?e", "gr\u00FC\u00DFe")
+    .replaceAll("Stra?e", "Stra\u00DFe")
+    .replaceAll("stra?e", "stra\u00DFe")
+    .replaceAll("Strasse", "Stra\u00DFe")
+    .replaceAll("strasse", "stra\u00DFe")
+    .replaceAll("\uFFFD\u0013", "\u00D6")
+    .replaceAll("\uFFFDS", "\u00DC")
+    .replaceAll("\uFFFDx", "\u00DF")
+    .replaceAll("\uFFFD", "");
 
   LEGACY_TEXT_REPLACEMENTS.forEach(([source, target]) => {
     normalized = normalized.replaceAll(source, target);
@@ -139,6 +153,8 @@ const customersSearchInput = document.getElementById("customersSearch");
 const articlesSearchInput = document.getElementById("articlesSearch");
 const invoiceItemsTable = document.getElementById("invoiceItemsTable");
 const invoiceTotals = document.getElementById("invoiceTotals");
+const invoiceItemsWrap = invoiceItemsTable?.closest(".invoice-items-wrap") || null;
+const invoiceItemsFooter = invoiceTotals?.closest(".invoice-items-footer") || null;
 const invoiceHistory = document.getElementById("invoiceHistory");
 const invoiceCanvas = document.getElementById("invoiceCanvas");
 const canvasContext = invoiceCanvas.getContext("2d");
@@ -244,7 +260,6 @@ const articleFields = {
 
 const settingsFields = {
   companyName: settingsForm.elements.namedItem("companyName"),
-  senderLine: settingsForm.elements.namedItem("senderLine"),
   addressLine1: settingsForm.elements.namedItem("addressLine1"),
   addressLine2: settingsForm.elements.namedItem("addressLine2"),
   postalCode: settingsForm.elements.namedItem("postalCode"),
@@ -635,7 +650,7 @@ function resetAuthenticatedState() {
     dueDate: addDays(14),
     reference: "",
     notes: "",
-    items: [createEmptyItem()],
+    items: [],
     signatureDataUrl: ""
   };
 }
@@ -1057,12 +1072,11 @@ function populateSettingsForm() {
   }
   settingsFields.authPassword.value = auth?.password || "";
   settingsFields.companyName.value = business.companyName || "";
-  settingsFields.senderLine.value = business.senderLine || "";
   settingsFields.addressLine1.value = business.addressLine1 || "";
   settingsFields.addressLine2.value = business.addressLine2 || "";
   settingsFields.postalCode.value = business.postalCode || "";
   settingsFields.city.value = business.city || "";
-  settingsFields.country.value = business.country || "";
+  settingsFields.country.value = normalizeLegacyText(business.country || "");
   settingsFields.phone.value = business.phone || "";
   settingsFields.businessEmail.value = business.email || "";
   settingsFields.uid.value = business.uid || "";
@@ -1101,7 +1115,6 @@ function readSettingsForm() {
   return {
     business: {
       companyName: settingsFields.companyName.value.trim(),
-      senderLine: settingsFields.senderLine.value.trim(),
       addressLine1: settingsFields.addressLine1.value.trim(),
       addressLine2: settingsFields.addressLine2.value.trim(),
       postalCode: settingsFields.postalCode.value.trim(),
@@ -1569,6 +1582,10 @@ function calculateDraftTotals() {
 function updateInvoiceTotalsDisplay() {
   const totals = calculateDraftTotals();
   invoiceTotals.textContent = `Gesamt: ${formatCurrency(totals.grossTotal)}`;
+  invoiceTotals.hidden = state.invoiceDraft.items.length === 0;
+  if (invoiceItemsFooter) {
+    invoiceItemsFooter.classList.toggle("is-empty", state.invoiceDraft.items.length === 0);
+  }
 }
 
 function renderCustomerOptions() {
@@ -1783,7 +1800,16 @@ function buildInvoiceItemPricingSummary(item) {
 
 function renderInvoiceItems() {
   if (!state.invoiceDraft.items.length) {
-    state.invoiceDraft.items = [createEmptyItem()];
+    invoiceItemsTable.innerHTML = "";
+    if (invoiceItemsWrap) {
+      invoiceItemsWrap.hidden = true;
+    }
+    updateInvoiceTotalsDisplay();
+    return;
+  }
+
+  if (invoiceItemsWrap) {
+    invoiceItemsWrap.hidden = false;
   }
 
   invoiceItemsTable.innerHTML = state.invoiceDraft.items
@@ -2125,18 +2151,16 @@ async function renderCanvas() {
   canvasContext.textBaseline = "top";
   canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillStyle = "#2e2e2e";
-  drawWrappedText(canvasContext, business.senderLine || "", 66, 164 + headerShift, 340, 14, 2);
 
   canvasContext.fillStyle = "#111111";
   canvasContext.font = '14px Calibri, Candara, "Segoe UI", sans-serif';
-  const addressLines = customer
-    ? [
-        customer.name,
-        customer.street,
-        `${customer.postalCode || ""} ${customer.city || ""}`.trim(),
-        customer.country
-      ].filter(Boolean)
-    : ["Bitte Kunde auswählen"];
+  const addressLines = [
+    business.companyName,
+    business.addressLine1,
+    business.addressLine2,
+    [business.postalCode, business.city].filter(Boolean).join(" ").trim(),
+    business.country
+  ].filter(Boolean);
 
   addressLines.forEach((line, index) => {
     canvasContext.fillText(line, 66, 190 + headerShift + index * 20);
@@ -2145,20 +2169,19 @@ async function renderCanvas() {
   canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillText("Kundeninfo", 446, 180 + headerShift);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
-  const customerInfoLines = [`Kunden-Nr.:   ${customer?.customerNumber || "-"}`];
-  if (customer?.phone) {
-    customerInfoLines.push(`Telefon:      ${customer.phone}`);
-  }
-  if (customer?.email) {
-    customerInfoLines.push(`eMail:        ${customer.email}`);
-  }
-  if (customer?.uid) {
-    customerInfoLines.push(`UID-Nr.:      ${customer.uid}`);
-  }
+  const customerInfoLines = customer
+    ? [
+        customer.name,
+        `Kunden-Nr.:   ${customer.customerNumber || "-"}`,
+        customer.phone ? `Telefon:      ${customer.phone}` : "",
+        customer.email ? `E-Mail:       ${customer.email}` : "",
+        customer.uid ? `UID-Nr.:      ${customer.uid}` : ""
+      ].filter(Boolean)
+    : ["Bitte Kunde auswählen"];
+
   customerInfoLines.forEach((line, index) => {
     canvasContext.fillText(line, 446, 212 + headerShift + index * 22);
   });
-
   canvasContext.font = 'bold 18px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, 345 + headerShift);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
@@ -2661,10 +2684,6 @@ function addInvoiceItem() {
 
 function removeInvoiceItem(index) {
   state.invoiceDraft.items.splice(index, 1);
-  if (!state.invoiceDraft.items.length) {
-    state.invoiceDraft.items.push(createEmptyItem());
-  }
-
   renderInvoiceItems();
   updateInvoiceTotalsDisplay();
   schedulePreviewRender();
@@ -2975,7 +2994,7 @@ async function sendInvoice() {
       dueDate: addDays(14),
       reference: "",
       notes: "",
-      items: [createEmptyItem()],
+      items: [],
       signatureDataUrl: ""
     };
     syncInvoiceMetaInputs();
@@ -3039,7 +3058,7 @@ async function shareInvoiceDraft() {
       dueDate: addDays(14),
       reference: "",
       notes: "",
-      items: [createEmptyItem()],
+      items: [],
       signatureDataUrl: ""
     };
     syncInvoiceMetaInputs();

@@ -22,7 +22,7 @@ const DATA_FILE = path.join(STORAGE_ROOT, "store.json");
 const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const ASSET_STORAGE_DIR = path.join(STORAGE_ROOT, "assets");
 const HOST = process.env.HOST || "0.0.0.0";
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 3100);
 const GOOGLE_SHEETS_WEBAPP_URL = String(process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
 const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECRET || "").trim();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
@@ -43,7 +43,6 @@ function createAdminSeedPayload() {
     settings: {
       business: {
         companyName: "Testfirma",
-        senderLine: "Abs.: Testfirma | Musterstraße 1 | 6335 Thiersee",
         addressLine1: "Musterstraße 1",
         addressLine2: "",
         postalCode: "6335",
@@ -109,7 +108,6 @@ function createTestUserSeedPayload() {
     settings: {
       business: {
         companyName: "Test User Firma",
-        senderLine: "Abs.: Test User Firma | Testweg 2 | 6335 Thiersee",
         addressLine1: "Testweg 2",
         addressLine2: "",
         postalCode: "6335",
@@ -310,7 +308,6 @@ const DEFAULT_STORE = {
   settings: {
     business: {
       companyName: "",
-      senderLine: "",
       addressLine1: "",
       addressLine2: "",
       postalCode: "",
@@ -378,30 +375,30 @@ function roundCurrency(value) {
 }
 
 const LEGACY_TEXT_REPLACEMENTS = [
-  ["Oesterreich", "Österreich"],
-  ["oesterreich", "österreich"],
-  ["Faellig", "Fällig"],
-  ["faellig", "fällig"],
-  ["Ueberweisung", "Überweisung"],
-  ["ueberweisung", "überweisung"],
-  ["Gruesse", "Grüße"],
-  ["gruesse", "grüße"],
-  ["zurueck", "zurück"],
-  ["Zurueck", "Zurück"],
-  ["geloescht", "gelöscht"],
-  ["Geloescht", "Gelöscht"],
-  ["loeschen", "löschen"],
-  ["Loeschen", "Löschen"],
-  ["geaendert", "geändert"],
-  ["Geaendert", "Geändert"],
-  ["fuer", "für"],
-  ["Fuer", "Für"],
-  ["ueber", "über"],
-  ["Ueber", "Über"],
-  ["verfuegbar", "verfügbar"],
-  ["Verfuegbar", "Verfügbar"],
-  ["bestaetigen", "bestätigen"],
-  ["Bestaetigen", "Bestätigen"]
+  ["Oesterreich", "\u00D6sterreich"],
+  ["oesterreich", "\u00D6sterreich"],
+  ["Faellig", "F\u00E4llig"],
+  ["faellig", "f\u00E4llig"],
+  ["Ueberweisung", "\u00DCberweisung"],
+  ["ueberweisung", "\u00DCberweisung"],
+  ["Gruesse", "Gr\u00FC\u00DFe"],
+  ["gruesse", "gr\u00FC\u00DFe"],
+  ["zurueck", "zur\u00FCck"],
+  ["Zurueck", "Zur\u00FCck"],
+  ["geloescht", "gel\u00F6scht"],
+  ["Geloescht", "Gel\u00F6scht"],
+  ["loeschen", "l\u00F6schen"],
+  ["Loeschen", "L\u00F6schen"],
+  ["geaendert", "ge\u00E4ndert"],
+  ["Geaendert", "Ge\u00E4ndert"],
+  ["fuer", "f\u00FCr"],
+  ["Fuer", "F\u00FCr"],
+  ["ueber", "\u00FCber"],
+  ["Ueber", "\u00DCber"],
+  ["verfuegbar", "verf\u00FCgbar"],
+  ["Verfuegbar", "Verf\u00FCgbar"],
+  ["bestaetigen", "best\u00E4tigen"],
+  ["Bestaetigen", "Best\u00E4tigen"]
 ];
 
 function normalizeLegacyText(value) {
@@ -410,13 +407,27 @@ function normalizeLegacyText(value) {
   }
 
   let normalized = value;
-  if (/[ÃÂâ]/.test(normalized)) {
+  if (normalized.includes("?") || normalized.includes("?")) {
     try {
       normalized = Buffer.from(normalized, "latin1").toString("utf8");
     } catch {
       // Fallback auf den Originaltext.
     }
   }
+
+  normalized = normalized
+    .replaceAll("?sterreich", "\u00D6sterreich")
+    .replaceAll("?berweisung", "\u00DCberweisung")
+    .replaceAll("Gr\uFFFD?e", "Gr\u00FC\u00DFe")
+    .replaceAll("gr\uFFFD?e", "gr\u00FC\u00DFe")
+    .replaceAll("Stra?e", "Stra\u00DFe")
+    .replaceAll("stra?e", "stra\u00DFe")
+    .replaceAll("Strasse", "Stra\u00DFe")
+    .replaceAll("strasse", "stra\u00DFe")
+    .replaceAll("\uFFFD\u0013", "\u00D6")
+    .replaceAll("\uFFFDS", "\u00DC")
+    .replaceAll("\uFFFDx", "\u00DF")
+    .replaceAll("\uFFFD", "");
 
   for (const [source, target] of LEGACY_TEXT_REPLACEMENTS) {
     normalized = normalized.replaceAll(source, target);
@@ -733,6 +744,49 @@ function sanitizeCustomer(input = {}) {
   };
 }
 
+function findCustomerIndexByIdOrPayload(customers = [], id, input = {}) {
+  const normalizedId = String(id || "").trim();
+  const normalizedInput = sanitizeCustomer({ ...input, id: normalizedId || input?.id });
+  const directIndex = customers.findIndex((entry) => String(entry.id || "").trim() === normalizedId);
+  if (directIndex >= 0) {
+    return directIndex;
+  }
+
+  const syncKey = buildCustomerSyncKey(normalizedInput);
+  if (syncKey.replace(/\|/g, "")) {
+    const keyIndex = customers.findIndex((entry) => buildCustomerSyncKey(entry) === syncKey);
+    if (keyIndex >= 0) {
+      return keyIndex;
+    }
+  }
+
+  if (normalizedInput.customerNumber) {
+    const numberIndex = customers.findIndex(
+      (entry) => String(entry.customerNumber || "").trim() === normalizedInput.customerNumber
+    );
+    if (numberIndex >= 0) {
+      return numberIndex;
+    }
+  }
+
+  if (normalizedInput.email) {
+    const emailIndex = customers.findIndex(
+      (entry) => String(entry.email || "").trim().toLowerCase() === normalizedInput.email.toLowerCase()
+    );
+    if (emailIndex >= 0) {
+      return emailIndex;
+    }
+  }
+
+  if (normalizedInput.name) {
+    return customers.findIndex(
+      (entry) => String(entry.name || "").trim().toLowerCase() === normalizedInput.name.toLowerCase()
+    );
+  }
+
+  return -1;
+}
+
 function sanitizeArticle(input = {}) {
   const normalizedInput = normalizeLegacyData(input);
   return {
@@ -949,7 +1003,6 @@ function remoteDataNeedsBackfill(user, remoteData = {}) {
   const remoteBusiness = remoteData?.settings?.business || {};
   const localBusinessFilled = [
     localBusiness.companyName,
-    localBusiness.senderLine,
     localBusiness.addressLine1,
     localBusiness.postalCode,
     localBusiness.city,
@@ -963,7 +1016,6 @@ function remoteDataNeedsBackfill(user, remoteData = {}) {
   ].some((value) => String(value || "").trim());
   const remoteBusinessFilled = [
     remoteBusiness.companyName,
-    remoteBusiness.senderLine,
     remoteBusiness.addressLine1,
     remoteBusiness.postalCode,
     remoteBusiness.city,
@@ -1044,7 +1096,7 @@ async function buildAdminUsersResponse(store) {
         lastOnlineAt: String(remoteUser.lastSeenAt || remoteUser.updatedAt || user.lastOnlineAt || ""),
         schemaVersion: String(remoteUser.schemaVersion || user.schemaVersion || ""),
         migratedToStructuredColumns: Boolean(
-          remoteUser.migratedToStructuredColumns ?? user.migratedToStructuredColumns
+          remoteUser.migratedToStructuredColumns || user.migratedToStructuredColumns
         )
       };
     });
@@ -2084,7 +2136,8 @@ app.post("/api/customers", requireAuth, async (req, res, next) => {
 
 app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
   try {
-    const index = req.user.customers.findIndex((entry) => entry.id === req.params.id);
+    const customerInput = req.body?.customer || req.body;
+    const index = findCustomerIndexByIdOrPayload(req.user.customers, req.params.id, customerInput);
     if (index === -1) {
       res.status(404).json({ error: "Kunde nicht gefunden." });
       return;
@@ -2092,8 +2145,8 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
 
     req.user.customers[index] = sanitizeCustomer({
       ...req.user.customers[index],
-      ...(req.body?.customer || req.body),
-      id: req.params.id
+      ...customerInput,
+      id: req.user.customers[index].id
     });
     markUserActivity(req.user);
     await writeStore(req.store);
@@ -2329,6 +2382,7 @@ if (isDirectRun) {
     urls.forEach((url) => console.log(`- ${url}`));
   });
 }
+
 
 
 

@@ -3578,27 +3578,41 @@ async function shareInvoiceDraft() {
 }
 
 async function resendInvoice(invoiceId) {
+  const resendButton = invoiceHistory.querySelector(`[data-resend-invoice="${invoiceId}"]`);
+  if (resendButton) {
+    resendButton.disabled = true;
+    resendButton.textContent = "Wird vorbereitet...";
+  }
+  setLoading(true, "Rechnung wird erneut vorbereitet...");
+
   try {
     const response = await api(`/api/invoices/${invoiceId}/resend`, {
       method: "POST",
-      body: JSON.stringify({
-        deliveryMethod: "external-app"
-      })
+      body: JSON.stringify({ deliveryMethod: "external-app" })
     });
 
-    state.invoices = state.invoices.map((entry) => (entry.id === response.invoice.id ? response.invoice : entry));
+    state.invoices = state.invoices.map((entry) =>
+      entry.id === response.invoice.id ? response.invoice : entry
+    );
     renderInvoiceHistory();
 
     if (response.email?.status === "external-app" && response.invoice) {
       await openExternalMailApp(response.invoice);
+    } else if (response.email?.status === "sent") {
+      setStatus("Rechnung erfolgreich gesendet.", "success");
     } else if (response.email?.status && response.email.status !== "sent") {
       window.alert(response.email.message || "Erneutes Senden fehlgeschlagen.");
+      setStatus(response.email.message || "Erneutes Senden fehlgeschlagen.", "error");
+      return;
     }
 
     setStatus(response.email?.message || "Rechnung wurde erneut vorbereitet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht erneut gesendet werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht erneut gesendet werden.");
+  } finally {
+    setLoading(false);
+    // Button wird durch renderInvoiceHistory() ohnehin neu gerendert
   }
 }
 

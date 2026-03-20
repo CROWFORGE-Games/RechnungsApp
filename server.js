@@ -985,6 +985,16 @@ async function hydrateUserFromGoogleSheets(store, user) {
       return user;
     }
 
+    // Lokale Änderungen sind neuer → nicht überschreiben, stattdessen hochladen
+    const localActivity = new Date(user.lastActivityAt || user.updatedAt || 0).getTime();
+    const remoteActivity = new Date(
+      response.data.lastActivityAt || response.data.updatedAt || 0
+    ).getTime();
+    if (localActivity > remoteActivity) {
+      await syncUserToGoogleSheets(user);
+      return user;
+    }
+
     const shouldRepairRemoteIds = remoteDataHasMissingEntityIds(response.data);
     const applyResult = applyRemoteUserData(user, response.data);
     await writeStore(store);

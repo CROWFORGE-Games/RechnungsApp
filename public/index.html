@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V1.0.12</div>
+          <div class="app-version" id="appVersion">V1.0.13</div>
         </div>
       </aside>
 
@@ -328,13 +328,14 @@
         <div class="form-inline-two span-2">
           <label>
             Gruppe
-            <input name="group" type="text" />
+            <input name="group" type="text" list="articleGroupOptions" />
           </label>
           <label>
             Artikel-Nr.
             <input name="number" type="text" />
           </label>
         </div>
+        <datalist id="articleGroupOptions"></datalist>
         <label>
           Bezeichnung
           <input name="name" type="text" required />
@@ -572,7 +573,7 @@
           <button class="primary" type="submit">Einstellungen speichern</button>
           <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.12</span></div>
+        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.13</span></div>
       </form>
     </aside>
 

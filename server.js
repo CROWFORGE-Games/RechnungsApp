@@ -728,11 +728,13 @@ function sanitizeSettings(settings) {
 
 function sanitizeCustomer(input = {}) {
   const normalizedInput = normalizeLegacyData(input);
+  const fallbackName = String(normalizedInput.contactPerson || "").trim();
+  const resolvedName = String(normalizedInput.name || "").trim() || fallbackName;
   return {
     id: normalizedInput.id || crypto.randomUUID(),
     customerNumber: String(normalizedInput.customerNumber || "").trim(),
-    name: String(normalizedInput.name || "").trim(),
-    contactPerson: String(normalizedInput.contactPerson || "").trim(),
+    name: resolvedName,
+    contactPerson: fallbackName,
     street: String(normalizedInput.street || "").trim(),
     postalCode: String(normalizedInput.postalCode || "").trim(),
     city: String(normalizedInput.city || "").trim(),
@@ -1347,6 +1349,19 @@ async function readStoredLogo(user, kind) {
     return null;
   }
 
+  const branding = user?.settings?.branding || {};
+  const dataUrl =
+    kind === "invoice"
+      ? String(branding.invoiceLogoDataUrl || "")
+      : String(branding.appLogoDataUrl || "");
+  if (dataUrl.startsWith("data:image/png;base64,")) {
+    try {
+      return Buffer.from(dataUrl.split(",")[1] || "", "base64");
+    } catch {
+      // Fallback auf lokale Datei
+    }
+  }
+
   const localPath = path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`);
   try {
     return await fs.readFile(localPath);
@@ -1371,7 +1386,10 @@ async function saveLogoAsset(user, kind, imageDataUrl) {
   await fs.writeFile(path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`), imageBuffer);
   user.settings.branding = {
     ...(user.settings.branding || {}),
-    [kind === "invoice" ? "hasInvoiceLogo" : "hasAppLogo"]: true
+    [kind === "invoice" ? "hasInvoiceLogo" : "hasAppLogo"]: true,
+    ...(kind === "invoice"
+      ? { invoiceLogoDataUrl: String(imageDataUrl) }
+      : { appLogoDataUrl: String(imageDataUrl) })
   };
 }
 
@@ -1389,7 +1407,8 @@ async function removeLogoAsset(user, kind) {
 
   user.settings.branding = {
     ...(user.settings.branding || {}),
-    [kind === "invoice" ? "hasInvoiceLogo" : "hasAppLogo"]: false
+    [kind === "invoice" ? "hasInvoiceLogo" : "hasAppLogo"]: false,
+    ...(kind === "invoice" ? { invoiceLogoDataUrl: "" } : { appLogoDataUrl: "" })
   };
 }
 
@@ -2051,6 +2070,7 @@ app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
     await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
     markUserActivity(req.user);
     await writeStore(req.store);
+    queueGoogleSheetsSync(req.user);
     res.status(201).json({ ok: true });
   } catch (error) {
     next(error);

@@ -1056,9 +1056,7 @@ th {
 }
 
 .invoice-item-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
   gap: 12px;
   padding: 10px 12px;
   border-radius: 16px;
@@ -1080,6 +1078,7 @@ th {
 .invoice-item-meta__toggle {
   min-width: 112px;
   white-space: nowrap;
+  justify-self: start;
 }
 
 .invoice-item-remove {
@@ -1097,12 +1096,12 @@ th {
   gap: 10px;
 }
 
-.invoice-item-editor.is-hidden {
-  display: none;
-}
-
 .invoice-item-editor__pricing {
   margin-top: 2px;
+}
+
+.invoice-item-editor__done {
+  justify-self: stretch;
 }
 
 .form-inline-two--equal {

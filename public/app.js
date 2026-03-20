@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.12";
+const APP_VERSION = "V1.0.13";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -231,6 +231,7 @@ const closePanelButtons = [...document.querySelectorAll("[data-close-panel]")];
 const focusMainButton = document.querySelector("[data-focus-main]");
 const resetCustomerFormButton = document.getElementById("resetCustomerForm");
 const resetArticleFormButton = document.getElementById("resetArticleForm");
+const articleGroupOptions = document.getElementById("articleGroupOptions");
 
 const customerFields = {
   id: customerForm.elements.namedItem("id"),
@@ -340,7 +341,7 @@ function createEmptyItem() {
     articleId: "",
     articleNumber: "",
     description: "",
-    quantity: 0.5,
+    quantity: 1,
     unit: "Stunden",
     unitPrice: 0,
     taxRate: 20,
@@ -1447,6 +1448,24 @@ async function previewSelectedLogo(kind, file) {
   }
 }
 
+async function saveSelectedLogo(kind, file) {
+  if (!file) {
+    return;
+  }
+
+  await previewSelectedLogo(kind, file);
+  await uploadLogoAsset(kind, file);
+  state.settings.branding = {
+    ...(state.settings?.branding || {}),
+    ...(kind === "invoice" ? { hasInvoiceLogo: true } : { hasAppLogo: true })
+  };
+  refreshBrandAssets();
+  if (kind === "invoice") {
+    await renderCanvas();
+    refreshSendPreview();
+  }
+}
+
 async function removeLogoAsset(kind) {
   await api(`/api/assets/logo/${encodeURIComponent(kind)}`, {
     method: "DELETE"
@@ -1482,6 +1501,10 @@ function fillCustomerForm(customer = null) {
   customerFields.uid.value = entry.uid || "";
   customerFields.notes.value = entry.notes || "";
   scrollPanelFormToTop(customerForm);
+}
+
+function getCustomerDisplayName(customer = {}) {
+  return String(customer.name || customer.contactPerson || "").trim();
 }
 
 function readCustomerForm() {
@@ -1526,6 +1549,23 @@ function fillArticleForm(article = null) {
   articleFields.taxRate.value = entry.taxRate ?? 20;
   articleFields.description.value = entry.description || "";
   scrollPanelFormToTop(articleForm);
+}
+
+function renderArticleGroupOptions() {
+  if (!articleGroupOptions) {
+    return;
+  }
+
+  const groups = [...new Set(
+    state.articles
+      .map((article) => String(article.group || "").trim())
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right, "de"))
+  )];
+
+  articleGroupOptions.innerHTML = groups
+    .map((group) => `<option value="${escapeHtml(group)}"></option>`)
+    .join("");
 }
 
 function readArticleForm() {
@@ -1591,9 +1631,10 @@ function updateInvoiceTotalsDisplay() {
 function renderCustomerOptions() {
   const options = ['<option value="">Kunde auswählen</option>'];
   for (const customer of sortByNumericField(state.customers, "customerNumber")) {
+    const customerName = getCustomerDisplayName(customer) || "Ohne Namen";
     options.push(
       `<option value="${escapeHtml(customer.id)}">${escapeHtml(
-        `${customer.customerNumber || "Ohne Nr."} - ${customer.name}`
+        `${customer.customerNumber || "Ohne Nr."} - ${customerName}`
       )}</option>`
     );
   }
@@ -1635,8 +1676,8 @@ function renderCustomers() {
         <tr>
           <td data-label="Nr.">${escapeHtml(customer.customerNumber)}</td>
           <td data-label="Kunde">
-            <strong>${escapeHtml(customer.name)}</strong>
-            ${customer.contactPerson ? `<div>${escapeHtml(customer.contactPerson)}</div>` : ""}
+            <strong>${escapeHtml(getCustomerDisplayName(customer) || "Ohne Namen")}</strong>
+            ${customer.name && customer.contactPerson ? `<div>${escapeHtml(customer.contactPerson)}</div>` : ""}
           </td>
           <td data-label="Ort">${escapeHtml(
             [customer.postalCode, customer.city].filter(Boolean).join(" ")
@@ -1664,6 +1705,7 @@ function renderArticles() {
       `<tr><td colspan="5" class="empty-state">${
         searchTerm ? "Keine passenden Artikel gefunden." : "Noch keine Artikel angelegt."
       }</td></tr>`;
+    renderArticleGroupOptions();
     return;
   }
 
@@ -1688,6 +1730,8 @@ function renderArticles() {
       `
     )
     .join("");
+
+  renderArticleGroupOptions();
 }
 
 
@@ -1841,37 +1885,47 @@ function renderInvoiceItems() {
                     buildInvoiceItemPricingSummary(item)
                   )}</p>
                 </div>
+                ${
+                  isEditing
+                    ? `
+                <div class="invoice-item-editor">
+                  <div class="invoice-description-fields invoice-description-fields--two">
+                    <input name="description" type="text" value="${escapeHtml(item.description)}" placeholder="Artikel" />
+                    <input name="articleNumber" type="text" value="${escapeHtml(
+                      item.articleNumber
+                    )}" placeholder="Art.-Nr." />
+                  </div>
+                  <div class="invoice-field-row invoice-field-row--three invoice-item-editor__pricing">
+                    <div class="invoice-field-stack">
+                      <span class="invoice-field-caption">Nettopreis</span>
+                      <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
+                        item.unitPrice
+                      )}" />
+                    </div>
+                    <div class="invoice-field-stack">
+                      <span class="invoice-field-caption">MwSt. %</span>
+                      <input name="taxRate" type="number" min="0" step="0.1" value="${escapeHtml(
+                        item.taxRate
+                      )}" />
+                    </div>
+                    <div class="invoice-field-stack">
+                      <span class="invoice-field-caption">Rabatt %</span>
+                      <input name="discount" type="number" min="0" step="0.01" value="${escapeHtml(
+                        item.discount
+                      )}" />
+                    </div>
+                  </div>
+                  <button class="ghost invoice-item-editor__done" type="button" data-action="toggle-item-details">
+                    Fertig
+                  </button>
+                </div>
+                    `
+                    : `
                 <button class="ghost invoice-item-meta__toggle" type="button" data-action="toggle-item-details">
-                  ${isEditing ? "Fertig" : "Bearbeiten"}
+                  Bearbeiten
                 </button>
-              </div>
-              <div class="invoice-item-editor${isEditing ? "" : " is-hidden"}">
-                <div class="invoice-description-fields invoice-description-fields--two">
-                  <input name="description" type="text" value="${escapeHtml(item.description)}" placeholder="Artikel" />
-                  <input name="articleNumber" type="text" value="${escapeHtml(
-                    item.articleNumber
-                  )}" placeholder="Art.-Nr." />
-                </div>
-                <div class="invoice-field-row invoice-field-row--three invoice-item-editor__pricing">
-                  <div class="invoice-field-stack">
-                    <span class="invoice-field-caption">Nettopreis</span>
-                    <input name="unitPrice" type="number" min="0" step="0.01" value="${escapeHtml(
-                      item.unitPrice
-                    )}" />
-                  </div>
-                  <div class="invoice-field-stack">
-                    <span class="invoice-field-caption">MwSt. %</span>
-                    <input name="taxRate" type="number" min="0" step="0.1" value="${escapeHtml(
-                      item.taxRate
-                    )}" />
-                  </div>
-                  <div class="invoice-field-stack">
-                    <span class="invoice-field-caption">Rabatt %</span>
-                    <input name="discount" type="number" min="0" step="0.01" value="${escapeHtml(
-                      item.discount
-                    )}" />
-                  </div>
-                </div>
+                    `
+                }
               </div>
             </div>
           </td>
@@ -3457,7 +3511,11 @@ function bindStaticEvents() {
   invoiceLogoFileInput?.addEventListener("change", async (event) => {
     const file = event.target?.files?.[0] || null;
     try {
-      await previewSelectedLogo("invoice", file);
+      await saveSelectedLogo("invoice", file);
+      if (invoiceLogoFileInput) {
+        invoiceLogoFileInput.value = "";
+      }
+      setStatus("Rechnungslogo gespeichert.", "success");
     } catch (error) {
       setStatus(error.message || "Rechnungslogo konnte nicht geladen werden.", "error");
     }
@@ -3465,7 +3523,11 @@ function bindStaticEvents() {
   appLogoFileInput?.addEventListener("change", async (event) => {
     const file = event.target?.files?.[0] || null;
     try {
-      await previewSelectedLogo("app", file);
+      await saveSelectedLogo("app", file);
+      if (appLogoFileInput) {
+        appLogoFileInput.value = "";
+      }
+      setStatus("App-Logo gespeichert.", "success");
     } catch (error) {
       setStatus(error.message || "App-Logo konnte nicht geladen werden.", "error");
     }

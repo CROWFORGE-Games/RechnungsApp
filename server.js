@@ -715,7 +715,9 @@ function sanitizeSettings(settings) {
     },
     branding: {
       hasInvoiceLogo: Boolean(normalizedSettings.branding?.hasInvoiceLogo),
-      hasAppLogo: Boolean(normalizedSettings.branding?.hasAppLogo)
+      hasAppLogo: Boolean(normalizedSettings.branding?.hasAppLogo),
+      invoiceLogoDataUrl: String(normalizedSettings.branding?.invoiceLogoDataUrl || ""),
+      appLogoDataUrl: String(normalizedSettings.branding?.appLogoDataUrl || "")
     },
     invoice: {
       title: normalizedSettings.invoice.title,
@@ -1071,8 +1073,87 @@ async function backfillImportedUsersToGoogleSheets(store) {
   return importedUsersBackfillPromise;
 }
 
+async function syncUserFromGoogleSheetsIntoStore(store, username) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!normalizedUsername || !isGoogleSheetsSyncConfigured()) {
+    return null;
+  }
+
+  try {
+    const response = await requestGoogleSheetsSync("getUserData", { username: normalizedUsername });
+    if (!response?.ok || !response.data) {
+      return findUserByUsername(store, normalizedUsername);
+    }
+
+    const remoteData = response.data;
+    const remotePassword = String(remoteData?.settings?.auth?.password || "admin");
+    let user = findUserByUsername(store, normalizedUsername);
+
+    if (user) {
+      const applyResult = applyRemoteUserData(user, remoteData);
+      user.settings = mergeSettings({
+        ...user.settings,
+        ...remoteData.settings,
+        auth: {
+          ...(user.settings?.auth || {}),
+          ...(remoteData.settings?.auth || {}),
+          username: normalizedUsername,
+          password: remotePassword,
+          defaultUserPassword: String(
+            remoteData?.settings?.auth?.defaultUserPassword ||
+              user.settings?.auth?.defaultUserPassword ||
+              "admin"
+          ),
+          adminPasswordVersion:
+            normalizedUsername === "admin"
+              ? 1
+              : Number(remoteData?.settings?.auth?.adminPasswordVersion || user.settings?.auth?.adminPasswordVersion || 0)
+        }
+      });
+      user.passwordHash = hashPassword(remotePassword);
+      if (remoteData.createdAt && !user.createdAt) {
+        user.createdAt = String(remoteData.createdAt);
+      }
+      if (remoteData.updatedAt) {
+        user.updatedAt = String(remoteData.updatedAt);
+      }
+      if (remoteData.lastActivityAt) {
+        user.lastActivityAt = String(remoteData.lastActivityAt);
+      }
+      if (remoteData.lastSeenAt) {
+        user.lastSeenAt = String(remoteData.lastSeenAt);
+      }
+      if (applyResult.repairedIds) {
+        await syncUserToGoogleSheets(user);
+      }
+    } else {
+      user = applySeedDataIfNeeded(
+        createUserRecord({
+          username: normalizedUsername,
+          password: remotePassword,
+          settings: remoteData.settings,
+          customers: Array.isArray(remoteData.customers) ? remoteData.customers : [],
+          articles: Array.isArray(remoteData.articles) ? remoteData.articles : [],
+          invoices: Array.isArray(remoteData.invoices) ? remoteData.invoices : [],
+          createdAt: remoteData.createdAt || remoteData.updatedAt,
+          updatedAt: remoteData.updatedAt,
+          lastActivityAt: remoteData.lastActivityAt || remoteData.updatedAt,
+          lastSeenAt: remoteData.lastSeenAt
+        })
+      );
+      store.users.push(user);
+    }
+
+    await writeStore(store);
+    return user;
+  } catch (error) {
+    console.error(`Google-Sheets-Benutzer konnte nicht lokal wiederhergestellt werden (${normalizedUsername}).`, error);
+    return findUserByUsername(store, normalizedUsername);
+  }
+}
+
 async function buildAdminUsersResponse(store) {
-  const users = buildAdminUsersLocalResponse(store);
+  let users = buildAdminUsersLocalResponse(store);
   if (!isGoogleSheetsSyncConfigured()) {
     return users;
   }
@@ -1087,21 +1168,34 @@ async function buildAdminUsersResponse(store) {
       response.users.map((entry) => [String(entry.username || "").trim().toLowerCase(), entry])
     );
 
-    return users.map((user) => {
-      const remoteUser = remoteUsersByName.get(String(user.username || "").trim().toLowerCase());
-      if (!remoteUser?.updatedAt) {
-        return user;
-      }
+    const remoteUsernames = response.users
+      .map((entry) => String(entry.username || "").trim().toLowerCase())
+      .filter(Boolean);
 
-      return {
-        ...user,
-        lastOnlineAt: String(remoteUser.lastSeenAt || remoteUser.updatedAt || user.lastOnlineAt || ""),
-        schemaVersion: String(remoteUser.schemaVersion || user.schemaVersion || ""),
-        migratedToStructuredColumns: Boolean(
-          remoteUser.migratedToStructuredColumns || user.migratedToStructuredColumns
-        )
-      };
-    });
+    if (remoteUsernames.length) {
+      await Promise.all(remoteUsernames.map((username) => syncUserFromGoogleSheetsIntoStore(store, username)));
+      users = buildAdminUsersLocalResponse(store);
+    }
+
+    return response.users
+      .map((remoteUser) => {
+        const username = String(remoteUser.username || "").trim().toLowerCase();
+        const syncedUser = users.find((entry) => String(entry.username || "").trim().toLowerCase() === username);
+        if (!syncedUser) {
+          return null;
+        }
+
+        return {
+          ...syncedUser,
+          lastOnlineAt: String(remoteUser.lastSeenAt || remoteUser.updatedAt || syncedUser.lastOnlineAt || ""),
+          schemaVersion: String(remoteUser.schemaVersion || syncedUser.schemaVersion || ""),
+          migratedToStructuredColumns: Boolean(
+            remoteUser.migratedToStructuredColumns || syncedUser.migratedToStructuredColumns
+          )
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
   } catch (error) {
     console.error("Google-Sheets-Benutzerliste konnte nicht geladen werden.", error);
     return users;
@@ -1831,7 +1925,11 @@ app.post("/api/auth/login", async (req, res, next) => {
     const store = await readStore();
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
-    const user = findUserByUsername(store, username);
+    let user = findUserByUsername(store, username);
+
+    if (username && isGoogleSheetsSyncConfigured()) {
+      user = await syncUserFromGoogleSheetsIntoStore(store, username);
+    }
 
     if (!username || !password || !user || user.passwordHash !== hashPassword(password)) {
       res.status(401).json({ error: "Benutzername oder Kennwort ist nicht korrekt." });
@@ -1893,7 +1991,10 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
       return;
     }
 
-    if (findUserByUsername(req.store, username)) {
+    const existingUser =
+      findUserByUsername(req.store, username) ||
+      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+    if (existingUser) {
       res.status(409).json({ error: "Dieser Benutzername ist bereits vorhanden." });
       return;
     }
@@ -1942,7 +2043,9 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
       return;
     }
 
-    const user = findUserByUsername(req.store, username);
+    const user =
+      findUserByUsername(req.store, username) ||
+      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2007,7 +2110,9 @@ app.delete("/api/admin/users/:username", requireAuth, requireAdmin, async (req, 
       return;
     }
 
-    const user = findUserByUsername(req.store, username);
+    const user =
+      findUserByUsername(req.store, username) ||
+      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2070,8 +2175,8 @@ app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
     await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    res.status(201).json({ ok: true });
+    await syncUserToGoogleSheets(req.user);
+    res.status(201).json({ ok: true, settings: getUserSettingsForClient(req.user) });
   } catch (error) {
     next(error);
   }
@@ -2082,8 +2187,8 @@ app.delete("/api/assets/logo/:kind", requireAuth, async (req, res, next) => {
     await removeLogoAsset(req.user, String(req.params.kind || "").trim());
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    res.status(204).end();
+    await syncUserToGoogleSheets(req.user);
+    res.json({ ok: true, settings: getUserSettingsForClient(req.user) });
   } catch (error) {
     next(error);
   }
@@ -2126,7 +2231,7 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     markUserActivity(currentUser);
 
     await writeStore(req.store);
-    queueGoogleSheetsSync(currentUser);
+    await syncUserToGoogleSheets(currentUser);
     res.json({ settings: getUserSettingsForClient(currentUser) });
   } catch (error) {
     next(error);

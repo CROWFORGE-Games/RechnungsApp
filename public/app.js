@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.13";
+const APP_VERSION = "V1.0.14";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -123,6 +123,7 @@ const appShell = document.getElementById("appShell");
 const statusBanner = document.getElementById("statusBanner");
 const appVersion = document.getElementById("appVersion");
 const settingsVersion = document.getElementById("settingsVersion");
+const authVersion = document.getElementById("authVersion");
 const settingsPanelTitle = document.getElementById("settingsPanelTitle");
 const templateHint = document.getElementById("templateHint");
 const mainInvoiceArea = document.getElementById("mainInvoiceArea");
@@ -1048,6 +1049,17 @@ async function loadLogo() {
     return null;
   }
 
+  const cachedInvoiceLogoDataUrl = String(state.settings?.branding?.invoiceLogoDataUrl || "");
+  if (cachedInvoiceLogoDataUrl.startsWith("data:image/")) {
+    try {
+      logoState.image = await loadImage(cachedInvoiceLogoDataUrl);
+      logoState.loaded = true;
+      return logoState.image;
+    } catch {
+      // Fallback auf Server-Asset.
+    }
+  }
+
   try {
     logoState.image = await loadImage(getBrandAssetUrl("invoice"));
     logoState.loaded = true;
@@ -1058,6 +1070,29 @@ async function loadLogo() {
 
   logoState.loaded = true;
   return null;
+}
+
+function getBrandingLogoDataUrl(kind) {
+  const branding = state.settings?.branding || {};
+  return kind === "invoice"
+    ? String(branding.invoiceLogoDataUrl || "")
+    : String(branding.appLogoDataUrl || "");
+}
+
+function setBrandingLogoState(kind, dataUrl = "") {
+  state.settings = state.settings || {};
+  state.settings.branding = {
+    ...(state.settings?.branding || {}),
+    ...(kind === "invoice"
+      ? {
+          hasInvoiceLogo: Boolean(dataUrl),
+          invoiceLogoDataUrl: String(dataUrl || "")
+        }
+      : {
+          hasAppLogo: Boolean(dataUrl),
+          appLogoDataUrl: String(dataUrl || "")
+        })
+  };
 }
 
 function populateSettingsForm() {
@@ -1283,8 +1318,10 @@ function updatePasswordDialogValidation() {
 }
 
 function refreshBrandAssets() {
-  const invoiceUrl = getBrandAssetUrl("invoice");
-  const appUrl = getBrandAssetUrl("app");
+  const invoiceDataUrl = getBrandingLogoDataUrl("invoice");
+  const appDataUrl = getBrandingLogoDataUrl("app");
+  const invoiceUrl = invoiceDataUrl || getBrandAssetUrl("invoice");
+  const appUrl = appDataUrl || getBrandAssetUrl("app");
   const hasInvoiceLogo = Boolean(state.settings?.branding?.hasInvoiceLogo);
   const hasAppLogo = Boolean(state.settings?.branding?.hasAppLogo);
   const invoicePreviewUrl = hasInvoiceLogo ? invoiceUrl : EMPTY_IMAGE_DATA_URL;
@@ -1411,18 +1448,6 @@ function canvasToPngDataUrl(canvas) {
   });
 }
 
-async function uploadLogoAsset(kind, file) {
-  if (!file) {
-    return;
-  }
-
-  const imageDataUrl = await fileToPngDataUrl(file);
-  await api("/api/assets/logo", {
-    method: "POST",
-    body: JSON.stringify({ kind, imageDataUrl })
-  });
-}
-
 async function previewSelectedLogo(kind, file) {
   if (!file) {
     refreshBrandAssets();
@@ -1453,16 +1478,44 @@ async function saveSelectedLogo(kind, file) {
     return;
   }
 
-  await previewSelectedLogo(kind, file);
-  await uploadLogoAsset(kind, file);
-  state.settings.branding = {
-    ...(state.settings?.branding || {}),
-    ...(kind === "invoice" ? { hasInvoiceLogo: true } : { hasAppLogo: true })
-  };
+  const previousBranding = normalizeLegacyData({ ...(state.settings?.branding || {}) });
+  const imageDataUrl = await fileToPngDataUrl(file);
+  setBrandingLogoState(kind, imageDataUrl);
   refreshBrandAssets();
-  if (kind === "invoice") {
-    await renderCanvas();
-    refreshSendPreview();
+
+  setLoading(true, kind === "invoice" ? "Rechnungslogo wird gespeichert..." : "App-Logo wird gespeichert...");
+  try {
+    const response = await api("/api/assets/logo", {
+      method: "POST",
+      body: JSON.stringify({ kind, imageDataUrl })
+    });
+
+    if (response?.settings) {
+      state.settings = normalizeLegacyData({
+        ...state.settings,
+        ...response.settings,
+        branding: {
+          ...(state.settings?.branding || {}),
+          ...(response.settings?.branding || {})
+        }
+      });
+    }
+
+    refreshBrandAssets();
+    if (kind === "invoice") {
+      await renderCanvas();
+      refreshSendPreview();
+    }
+  } catch (error) {
+    state.settings.branding = previousBranding;
+    refreshBrandAssets();
+    if (kind === "invoice") {
+      await renderCanvas();
+      refreshSendPreview();
+    }
+    throw error;
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -2123,16 +2176,12 @@ function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = I
   return (lineCount + 1) * lineHeight;
 }
 
-function drawFallbackLayout(context, headerShift = 0, showHeaderLine = true) {
+function drawFallbackLayout(context, headerShift = 0) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
   context.strokeStyle = "#222222";
   context.lineWidth = 1.2;
   context.beginPath();
-  if (showHeaderLine) {
-    context.moveTo(62, 150 + headerShift);
-    context.lineTo(734, 150 + headerShift);
-  }
   context.moveTo(62, 980);
   context.lineTo(734, 980);
   context.stroke();
@@ -2177,12 +2226,7 @@ async function renderCanvas() {
   if (template) {
     canvasContext.drawImage(template, 0, 0, invoiceCanvas.width, invoiceCanvas.height);
   } else {
-    drawFallbackLayout(canvasContext, headerShift, Boolean(logo));
-  }
-
-  if (!logo) {
-    canvasContext.fillStyle = "#ffffff";
-    canvasContext.fillRect(58, 146 + headerShift, 680, 8);
+    drawFallbackLayout(canvasContext, headerShift);
   }
 
   const customer = selectedCustomer();
@@ -2376,27 +2420,15 @@ function schedulePreviewRender() {
 async function saveSettings(event) {
   event.preventDefault();
   try {
+    setLoading(true, "Änderungen werden gespeichert und synchronisiert...");
     const settingsPayload = readSettingsForm();
     const response = await api("/api/settings", {
       method: "PUT",
       body: JSON.stringify({ settings: settingsPayload })
     });
 
-    const invoiceLogoFile = invoiceLogoFileInput?.files?.[0] || null;
-    const appLogoFile = appLogoFileInput?.files?.[0] || null;
-    if (invoiceLogoFile) {
-      await uploadLogoAsset("invoice", invoiceLogoFile);
-    }
-    if (appLogoFile) {
-      await uploadLogoAsset("app", appLogoFile);
-    }
-
     state.settings = normalizeLegacyData(response.settings);
     state.auth.username = response.settings.auth?.username || state.auth.username;
-    state.settings.branding = {
-      hasInvoiceLogo: Boolean(response.settings.branding?.hasInvoiceLogo || invoiceLogoFile),
-      hasAppLogo: Boolean(response.settings.branding?.hasAppLogo || appLogoFile)
-    };
     if (invoiceLogoFileInput) {
       invoiceLogoFileInput.value = "";
     }
@@ -2407,26 +2439,34 @@ async function saveSettings(event) {
     populateSettingsForm();
     await renderCanvas();
     refreshSendPreview();
-    setStatus(
-      invoiceLogoFile || appLogoFile
-        ? "Einstellungen und Logos gespeichert."
-        : "Einstellungen gespeichert.",
-      "success"
-    );
+    setStatus("Einstellungen gespeichert.", "success");
     schedulePreviewRender();
     closePanels();
+    scrollMainContentToTop();
+    focusMainButton?.focus();
   } catch (error) {
     setStatus(error.message || "Einstellungen konnten nicht gespeichert werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
 async function clearInvoiceLogo() {
   try {
-    await removeLogoAsset("invoice");
-    state.settings.branding = {
-      ...(state.settings.branding || {}),
-      hasInvoiceLogo: false
-    };
+    setLoading(true, "Rechnungslogo wird entfernt...");
+    const response = await removeLogoAsset("invoice");
+    if (response?.settings) {
+      state.settings = normalizeLegacyData({
+        ...state.settings,
+        ...response.settings,
+        branding: {
+          ...(state.settings?.branding || {}),
+          ...(response.settings?.branding || {})
+        }
+      });
+    } else {
+      setBrandingLogoState("invoice", "");
+    }
     if (invoiceLogoFileInput) {
       invoiceLogoFileInput.value = "";
     }
@@ -2437,16 +2477,27 @@ async function clearInvoiceLogo() {
     setStatus("Rechnungslogo entfernt. Die Rechnung wird jetzt ohne Logo erstellt.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnungslogo konnte nicht entfernt werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
 async function clearAppLogo() {
   try {
-    await removeLogoAsset("app");
-    state.settings.branding = {
-      ...(state.settings.branding || {}),
-      hasAppLogo: false
-    };
+    setLoading(true, "App-Logo wird entfernt...");
+    const response = await removeLogoAsset("app");
+    if (response?.settings) {
+      state.settings = normalizeLegacyData({
+        ...state.settings,
+        ...response.settings,
+        branding: {
+          ...(state.settings?.branding || {}),
+          ...(response.settings?.branding || {})
+        }
+      });
+    } else {
+      setBrandingLogoState("app", "");
+    }
     if (appLogoFileInput) {
       appLogoFileInput.value = "";
     }
@@ -2455,6 +2506,8 @@ async function clearAppLogo() {
     setStatus("App-Logo entfernt. Das Standardlogo wird wieder verwendet.", "success");
   } catch (error) {
     setStatus(error.message || "App-Logo konnte nicht entfernt werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -3668,6 +3721,9 @@ async function initializeApp() {
   appVersion.textContent = APP_VERSION;
   if (settingsVersion) {
     settingsVersion.textContent = APP_VERSION;
+  }
+  if (authVersion) {
+    authVersion.textContent = APP_VERSION;
   }
   panelOverlay.hidden = true;
   sendDialog.hidden = true;

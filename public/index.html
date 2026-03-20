@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V1.0.13</div>
+          <div class="app-version" id="appVersion">V1.0.14</div>
         </div>
       </aside>
 
@@ -195,6 +195,7 @@
         <p class="section-kicker" id="authModeKicker">Anmeldung</p>
         <h2 id="authTitle">Anmelden</h2>
         <p class="panel-note" id="authText">Mit einem vorhandenen Benutzer anmelden.</p>
+        <p class="panel-note auth-version">Version <span id="authVersion">V1.0.14</span></p>
         <form id="authForm" class="form-grid auth-grid">
           <label>
             Benutzername
@@ -546,24 +547,24 @@
         <details class="settings-section settings-accordion span-2">
           <summary class="settings-accordion__summary">Logos</summary>
           <div class="settings-section__grid settings-accordion__content">
-            <div class="logo-preview-card" data-logo-card="invoice">
-              <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen">×</button>
-              <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
-              <span class="logo-preview-card__empty">Kein Logo</span>
-              <p class="logo-preview-card__label">Rechnungslogo</p>
-            </div>
-            <div class="logo-preview-card" data-logo-card="app">
-              <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen">×</button>
-              <img class="logo-preview-card__image" data-settings-logo-preview="app" src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
-              <span class="logo-preview-card__empty">Standardlogo</span>
-              <p class="logo-preview-card__label">App-Logo</p>
-            </div>
-            <label>
+            <label class="logo-upload-field">
               Rechnungslogo
+              <div class="logo-preview-card" data-logo-card="invoice">
+                <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen">×</button>
+                <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
+                <span class="logo-preview-card__empty">Kein Logo</span>
+                <p class="logo-preview-card__label">Vorschau</p>
+              </div>
               <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
             </label>
-            <label>
+            <label class="logo-upload-field">
               App-Logo
+              <div class="logo-preview-card" data-logo-card="app">
+                <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen">×</button>
+                <img class="logo-preview-card__image" data-settings-logo-preview="app" src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
+                <span class="logo-preview-card__empty">Standardlogo</span>
+                <p class="logo-preview-card__label">Vorschau</p>
+              </div>
               <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
             </label>
           </div>
@@ -573,7 +574,7 @@
           <button class="primary" type="submit">Einstellungen speichern</button>
           <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.13</span></div>
+        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.14</span></div>
       </form>
     </aside>
 

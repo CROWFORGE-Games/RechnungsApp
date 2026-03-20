@@ -261,6 +261,16 @@ textarea {
   box-shadow: 0 14px 28px rgba(39, 84, 56, 0.08);
 }
 
+.logo-upload-field {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.logo-upload-field input[type="file"] {
+  margin-top: 0;
+}
+
 .logo-preview-card__image {
   display: block;
   width: 100%;
@@ -527,6 +537,12 @@ h3 {
   margin: 0 auto 14px;
   object-fit: contain;
   object-position: center;
+}
+
+.auth-version {
+  margin: -4px 0 6px;
+  text-align: center;
+  font-size: 0.92rem;
 }
 
 .auth-grid {

@@ -307,7 +307,7 @@ function deleteUserData_(username) {
 }
 
 function buildUserSettingsFromRow_(row, indexMap) {
-  const legacySettings = parseJson_(getCell_(row, indexMap, 'settings_json'), {});
+  const legacySettings = getLegacyUserSettings_(row, indexMap);
   const legacyBusiness = legacySettings.business || {};
   const legacyInvoice = legacySettings.invoice || {};
   const legacyEmail = legacySettings.email || {};
@@ -359,7 +359,7 @@ function buildUserSettingsFromRow_(row, indexMap) {
 }
 
 function buildCustomerFromRow_(row, indexMap) {
-  const legacyPayload = withEntityId_(parseJson_(getCell_(row, indexMap, 'payload_json'), {}), getCell_(row, indexMap, 'customer_id'));
+  const legacyPayload = getLegacyCustomerPayload_(row, indexMap);
 
   return {
     id: firstNonEmpty_(getCell_(row, indexMap, 'customer_id'), legacyPayload.id),
@@ -378,7 +378,7 @@ function buildCustomerFromRow_(row, indexMap) {
 }
 
 function buildArticleFromRow_(row, indexMap) {
-  const legacyPayload = withEntityId_(parseJson_(getCell_(row, indexMap, 'payload_json'), {}), getCell_(row, indexMap, 'article_id'));
+  const legacyPayload = getLegacyArticlePayload_(row, indexMap);
 
   return {
     id: firstNonEmpty_(getCell_(row, indexMap, 'article_id'), legacyPayload.id),
@@ -465,6 +465,50 @@ function getCell_(row, indexMap, columnName) {
     return '';
   }
   return String(row[indexMap[columnName]] || '').trim();
+}
+
+function getLegacyUserSettings_(row, indexMap) {
+  const directSettings = parseJson_(getCell_(row, indexMap, 'settings_json'), {});
+  if (Object.keys(directSettings).length) {
+    return directSettings;
+  }
+
+  const schemaVersion = getCell_(row, indexMap, 'schema_version');
+  if (schemaVersion) {
+    return {};
+  }
+
+  return parseJson_(row[1], {});
+}
+
+function getLegacyCustomerPayload_(row, indexMap) {
+  const directPayload = parseJson_(getCell_(row, indexMap, 'payload_json'), {});
+  const directId = getCell_(row, indexMap, 'customer_id');
+  if (Object.keys(directPayload).length) {
+    return withEntityId_(directPayload, directId);
+  }
+
+  const schemaVersion = getCell_(row, indexMap, 'schema_version');
+  if (schemaVersion) {
+    return withEntityId_({}, directId);
+  }
+
+  return withEntityId_(parseJson_(row[2], {}), row[1]);
+}
+
+function getLegacyArticlePayload_(row, indexMap) {
+  const directPayload = parseJson_(getCell_(row, indexMap, 'payload_json'), {});
+  const directId = getCell_(row, indexMap, 'article_id');
+  if (Object.keys(directPayload).length) {
+    return withEntityId_(directPayload, directId);
+  }
+
+  const schemaVersion = getCell_(row, indexMap, 'schema_version');
+  if (schemaVersion) {
+    return withEntityId_({}, directId);
+  }
+
+  return withEntityId_(parseJson_(row[2], {}), row[1]);
 }
 
 function parseJson_(value, fallback) {

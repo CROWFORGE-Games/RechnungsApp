@@ -83,12 +83,12 @@ function normalizeLegacyText(value) {
   }
 
   normalized = normalized
-    .replaceAll("?sterreich", "\u00D6sterreich")
-    .replaceAll("?berweisung", "\u00DCberweisung")
-    .replaceAll("Gr\uFFFD?e", "Gr\u00FC\u00DFe")
-    .replaceAll("gr\uFFFD?e", "gr\u00FC\u00DFe")
-    .replaceAll("Stra?e", "Stra\u00DFe")
-    .replaceAll("stra?e", "stra\u00DFe")
+    .replaceAll("\uFFFDsterreich", "\u00D6sterreich")
+    .replaceAll("\uFFFDberweisung", "\u00DCberweisung")
+    .replaceAll("Gr\uFFFD\uFFFDe", "Gr\u00FC\u00DFe")
+    .replaceAll("gr\uFFFD\uFFFDe", "gr\u00FC\u00DFe")
+    .replaceAll("Stra\uFFFDe", "Stra\u00DFe")
+    .replaceAll("stra\uFFFDe", "stra\u00DFe")
     .replaceAll("Strasse", "Stra\u00DFe")
     .replaceAll("strasse", "stra\u00DFe")
     .replaceAll("\uFFFD\u0013", "\u00D6")
@@ -124,6 +124,7 @@ const statusBanner = document.getElementById("statusBanner");
 const appVersion = document.getElementById("appVersion");
 const settingsVersion = document.getElementById("settingsVersion");
 const authVersion = document.getElementById("authVersion");
+const saveSettingsButton = document.getElementById("saveSettingsButton");
 const settingsPanelTitle = document.getElementById("settingsPanelTitle");
 const templateHint = document.getElementById("templateHint");
 const mainInvoiceArea = document.getElementById("mainInvoiceArea");
@@ -232,7 +233,9 @@ const closePanelButtons = [...document.querySelectorAll("[data-close-panel]")];
 const focusMainButton = document.querySelector("[data-focus-main]");
 const resetCustomerFormButton = document.getElementById("resetCustomerForm");
 const resetArticleFormButton = document.getElementById("resetArticleForm");
-const articleGroupOptions = document.getElementById("articleGroupOptions");
+const saveCustomerButton = document.getElementById("saveCustomerButton");
+const saveArticleButton = document.getElementById("saveArticleButton");
+const articleGroupSuggestions = document.getElementById("articleGroupSuggestions");
 
 const customerFields = {
   id: customerForm.elements.namedItem("id"),
@@ -302,6 +305,28 @@ let hasSignatureStroke = false;
 let signatureBounds = null;
 let deferredInstallPrompt = null;
 let authRefreshPromise = null;
+let hideArticleGroupSuggestionsTimer = 0;
+
+function sortObjectDeep(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sortObjectDeep(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((result, key) => {
+        result[key] = sortObjectDeep(value[key]);
+        return result;
+      }, {});
+  }
+
+  return value;
+}
+
+function stableSerialize(value) {
+  return JSON.stringify(sortObjectDeep(value));
+}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -447,7 +472,7 @@ function normalizeSearchText(value) {
     .toLocaleLowerCase("de")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ß/g, "ss")
+    .replace(/\u00DF/g, "ss")
     .trim();
 }
 
@@ -719,7 +744,7 @@ function applyRoleBasedUi() {
     articlesRailLabel.textContent = "Artikel hinzufügen";
   }
   if (settingsPanelTitle) {
-    settingsPanelTitle.textContent = adminMode ? "Benutzer und Logos" : "Firma, Bank und E-Mail";
+    settingsPanelTitle.textContent = adminMode ? "Benutzer" : "Firma, Bank und E-Mail";
   }
   adminHiddenSettingsSections.forEach((section) => {
     section.hidden = adminMode;
@@ -1120,7 +1145,7 @@ function populateSettingsForm() {
   settingsFields.iban.value = business.iban || "";
   settingsFields.bic.value = business.bic || "";
   settingsFields.issuerName.value = business.issuerName || "";
-  settingsFields.paymentNote.value = business.paymentNote || "";
+  settingsFields.paymentNote.value = business.paymentNote || "Fällig innerhalb von 14 Tagen ohne Abzug.";
   settingsFields.footerNote.value = business.footerNote || "";
   settingsFields.invoiceTitle.value = invoice.title || "Rechnung";
   settingsFields.counterValue.value = invoice.counterValue ?? 0;
@@ -1133,6 +1158,7 @@ function populateSettingsForm() {
     adminDefaultPasswordInput.value = auth?.defaultUserPassword || "admin";
   }
   updateAdminDefaultPasswordButtonVisibility();
+  updateSettingsSaveButtonVisibility();
 }
 
 function updateAdminDefaultPasswordButtonVisibility() {
@@ -1183,6 +1209,55 @@ function readSettingsForm() {
   };
 }
 
+function getComparableSettingsPayload(settings = readSettingsForm()) {
+  const normalized = normalizeLegacyData(settings);
+  return {
+    business: {
+      companyName: String(normalized?.business?.companyName || "").trim(),
+      addressLine1: String(normalized?.business?.addressLine1 || "").trim(),
+      addressLine2: String(normalized?.business?.addressLine2 || "").trim(),
+      postalCode: String(normalized?.business?.postalCode || "").trim(),
+      city: String(normalized?.business?.city || "").trim(),
+      country: String(normalized?.business?.country || "").trim(),
+      phone: String(normalized?.business?.phone || "").trim(),
+      email: String(normalized?.business?.email || "").trim(),
+      uid: String(normalized?.business?.uid || "").trim(),
+      bankName: String(normalized?.business?.bankName || "").trim(),
+      iban: String(normalized?.business?.iban || "").trim(),
+      bic: String(normalized?.business?.bic || "").trim(),
+      issuerName: String(normalized?.business?.issuerName || "").trim(),
+      paymentNote: String(normalized?.business?.paymentNote || "").trim(),
+      footerNote: String(normalized?.business?.footerNote || "").trim()
+    },
+    auth: {
+      username: String(normalized?.auth?.username || state.auth.username || "admin").trim(),
+      password: String(normalized?.auth?.password || "")
+    },
+    invoice: {
+      title: String(normalized?.invoice?.title || "Rechnung").trim(),
+      counterValue: toNumber(normalized?.invoice?.counterValue, 0),
+      counterYear: toNumber(normalized?.invoice?.counterYear, new Date().getFullYear())
+    },
+    email: {
+      ccEmail: String(normalized?.email?.ccEmail || "").trim(),
+      subjectTemplate: String(normalized?.email?.subjectTemplate || "").trim(),
+      bodyTemplate: String(normalized?.email?.bodyTemplate || "").trim()
+    }
+  };
+}
+
+function updateSettingsSaveButtonVisibility() {
+  if (!saveSettingsButton || !state.settings) {
+    return;
+  }
+
+  const saved = stableSerialize(getComparableSettingsPayload(state.settings));
+  const current = stableSerialize(getComparableSettingsPayload(readSettingsForm()));
+  const hasChanged = current !== saved;
+  saveSettingsButton.hidden = !hasChanged;
+  saveSettingsButton.disabled = !hasChanged;
+}
+
 function parseEmailList(value) {
   return String(value || "")
     .split(",")
@@ -1231,6 +1306,7 @@ function getCcEmailValue() {
 function addCcEmailRow(value = "") {
   const entries = [...readCcEmailInputs(), value];
   renderCcEmailInputs(entries);
+  updateSettingsSaveButtonVisibility();
 }
 
 function scrollPanelFormToTop(formElement) {
@@ -1288,7 +1364,7 @@ function updatePasswordDialogValidation() {
 
   if (passwordDialogFeedback) {
     if (showMismatch) {
-      passwordDialogFeedback.textContent = "Die Kennwörter stimmen nicht überein.";
+      passwordDialogFeedback.textContent = showMismatch ? "Die Kennwörter stimmen nicht überein." : "Kennwörter stimmen überein.";
       passwordDialogFeedback.classList.add("is-error");
     } else if (matches) {
       passwordDialogFeedback.textContent = "Kennwörter stimmen überein.";
@@ -1387,7 +1463,7 @@ function fileToPngDataUrl(file) {
       const context = canvas.getContext("2d");
       if (!context) {
         URL.revokeObjectURL(imageUrl);
-        reject(new Error("Bild konnte nicht verarbeitet werden."));
+        reject(new Error("Rechnungsansicht ist nicht verfügbar."));
         return;
       }
 
@@ -1553,6 +1629,8 @@ function fillCustomerForm(customer = null) {
   customerFields.email.value = entry.email || "";
   customerFields.uid.value = entry.uid || "";
   customerFields.notes.value = entry.notes || "";
+  updateCustomerNameRequirement();
+  updateCustomerFormActionVisibility();
   scrollPanelFormToTop(customerForm);
 }
 
@@ -1561,11 +1639,13 @@ function getCustomerDisplayName(customer = {}) {
 }
 
 function readCustomerForm() {
+  const companyName = customerFields.name.value.trim();
+  const contactPerson = customerFields.contactPerson.value.trim();
   return {
     id: customerFields.id.value.trim(),
     customerNumber: customerFields.customerNumber.value.trim(),
-    name: customerFields.name.value.trim(),
-    contactPerson: customerFields.contactPerson.value.trim(),
+    name: companyName || contactPerson,
+    contactPerson,
     street: customerFields.street.value.trim(),
     postalCode: customerFields.postalCode.value.trim(),
     city: customerFields.city.value.trim(),
@@ -1575,6 +1655,62 @@ function readCustomerForm() {
     uid: customerFields.uid.value.trim(),
     notes: customerFields.notes.value.trim()
   };
+}
+
+function updateCustomerNameRequirement() {
+  if (!customerFields.name) {
+    return;
+  }
+  customerFields.name.required = !String(customerFields.contactPerson?.value || "").trim();
+}
+
+function getComparableCustomerFormPayload(customer = readCustomerForm()) {
+  return {
+    id: String(customer.id || "").trim(),
+    customerNumber: String(customer.customerNumber || "").trim(),
+    name: String(customer.name || "").trim(),
+    contactPerson: String(customer.contactPerson || "").trim(),
+    street: String(customer.street || "").trim(),
+    postalCode: String(customer.postalCode || "").trim(),
+    city: String(customer.city || "").trim(),
+    country: String(customer.country || "").trim(),
+    phone: String(customer.phone || "").trim(),
+    email: String(customer.email || "").trim(),
+    uid: String(customer.uid || "").trim(),
+    notes: String(customer.notes || "").trim()
+  };
+}
+
+function getSavedCustomerFormPayload() {
+  const currentId = String(customerFields.id?.value || "").trim();
+  const source = currentId ? state.customers.find((entry) => entry.id === currentId) : null;
+  return getComparableCustomerFormPayload(
+    source || {
+      id: "",
+      customerNumber: nextCustomerNumber(),
+      name: "",
+      contactPerson: "",
+      street: "",
+      postalCode: "",
+      city: "",
+      country: state.settings?.business?.country || "Österreich",
+      phone: "",
+      email: "",
+      uid: "",
+      notes: ""
+    }
+  );
+}
+
+function updateCustomerFormActionVisibility() {
+  if (!saveCustomerButton || !resetCustomerFormButton) {
+    return;
+  }
+  const hasChanged =
+    stableSerialize(getComparableCustomerFormPayload()) !== stableSerialize(getSavedCustomerFormPayload());
+  saveCustomerButton.hidden = !hasChanged;
+  saveCustomerButton.disabled = !hasChanged;
+  resetCustomerFormButton.hidden = !hasChanged;
 }
 
 function resetCustomerForm() {
@@ -1601,24 +1737,58 @@ function fillArticleForm(article = null) {
   articleFields.unitPrice.value = entry.unitPrice ?? "";
   articleFields.taxRate.value = entry.taxRate ?? 20;
   articleFields.description.value = entry.description || "";
+  renderArticleGroupSuggestions(articleFields.group?.value || "", false);
+  updateArticleFormActionVisibility();
   scrollPanelFormToTop(articleForm);
 }
 
-function renderArticleGroupOptions() {
-  if (!articleGroupOptions) {
-    return;
-  }
-
+function getArticleGroups() {
   const groups = [...new Set(
     state.articles
       .map((article) => String(article.group || "").trim())
       .filter(Boolean)
       .sort((left, right) => left.localeCompare(right, "de"))
   )];
+  return groups;
+}
 
-  articleGroupOptions.innerHTML = groups
-    .map((group) => `<option value="${escapeHtml(group)}"></option>`)
+function renderArticleGroupSuggestions(query = "", forceOpen = false) {
+  if (!articleGroupSuggestions) {
+    return;
+  }
+
+  const normalizedQuery = String(query || "").trim().toLocaleLowerCase("de");
+  const groups = getArticleGroups().filter((group) =>
+    !normalizedQuery ? true : group.toLocaleLowerCase("de").includes(normalizedQuery)
+  );
+
+  if (!groups.length || (!forceOpen && !normalizedQuery)) {
+    articleGroupSuggestions.hidden = true;
+    articleGroupSuggestions.innerHTML = "";
+    return;
+  }
+
+  articleGroupSuggestions.innerHTML = groups
+    .map(
+      (group) =>
+        `<button class="group-suggestion" type="button" data-group-option="${escapeHtml(group)}">${escapeHtml(group)}</button>`
+    )
     .join("");
+  articleGroupSuggestions.hidden = false;
+}
+
+function showArticleGroupSuggestions() {
+  window.clearTimeout(hideArticleGroupSuggestionsTimer);
+  renderArticleGroupSuggestions(articleFields.group?.value || "", true);
+}
+
+function hideArticleGroupSuggestions() {
+  window.clearTimeout(hideArticleGroupSuggestionsTimer);
+  hideArticleGroupSuggestionsTimer = window.setTimeout(() => {
+    if (articleGroupSuggestions) {
+      articleGroupSuggestions.hidden = true;
+    }
+  }, 120);
 }
 
 function readArticleForm() {
@@ -1632,6 +1802,47 @@ function readArticleForm() {
     unitPrice: toNumber(articleFields.unitPrice.value),
     taxRate: toNumber(articleFields.taxRate.value, 20)
   };
+}
+
+function getComparableArticleFormPayload(article = readArticleForm()) {
+  return {
+    id: String(article.id || "").trim(),
+    group: String(article.group || "").trim(),
+    number: String(article.number || "").trim(),
+    name: String(article.name || "").trim(),
+    description: String(article.description || "").trim(),
+    unit: String(article.unit || "").trim(),
+    unitPrice: toNumber(article.unitPrice),
+    taxRate: toNumber(article.taxRate, 20)
+  };
+}
+
+function getSavedArticleFormPayload() {
+  const currentId = String(articleFields.id?.value || "").trim();
+  const source = currentId ? state.articles.find((entry) => entry.id === currentId) : null;
+  return getComparableArticleFormPayload(
+    source || {
+      id: "",
+      group: "",
+      number: nextArticleNumber(),
+      name: "",
+      unit: "Stunden",
+      unitPrice: 0,
+      taxRate: 20,
+      description: ""
+    }
+  );
+}
+
+function updateArticleFormActionVisibility() {
+  if (!saveArticleButton || !resetArticleFormButton) {
+    return;
+  }
+  const hasChanged =
+    stableSerialize(getComparableArticleFormPayload()) !== stableSerialize(getSavedArticleFormPayload());
+  saveArticleButton.hidden = !hasChanged;
+  saveArticleButton.disabled = !hasChanged;
+  resetArticleFormButton.hidden = !hasChanged;
 }
 
 function resetArticleForm() {
@@ -1758,7 +1969,7 @@ function renderArticles() {
       `<tr><td colspan="5" class="empty-state">${
         searchTerm ? "Keine passenden Artikel gefunden." : "Noch keine Artikel angelegt."
       }</td></tr>`;
-    renderArticleGroupOptions();
+    renderArticleGroupSuggestions(articleFields.group?.value || "", false);
     return;
   }
 
@@ -1784,7 +1995,7 @@ function renderArticles() {
     )
     .join("");
 
-  renderArticleGroupOptions();
+  renderArticleGroupSuggestions(articleFields.group?.value || "", false);
 }
 
 
@@ -1884,7 +2095,7 @@ function buildInvoiceItemMetaSummary(item) {
   if (item.articleNumber) {
     parts.push(`Art.-Nr. ${item.articleNumber}`);
   }
-  return parts.join(" · ");
+  return parts.join(" \u00B7 ");
 }
 
 function buildInvoiceItemPricingSummary(item) {
@@ -1892,7 +2103,7 @@ function buildInvoiceItemPricingSummary(item) {
   if (toNumber(item.discount) > 0) {
     parts.push(`Rabatt ${formatAmount(item.discount)} %`);
   }
-  return parts.join(" · ");
+  return parts.join(" \u00B7 ");
 }
 
 function renderInvoiceItems() {
@@ -2442,6 +2653,7 @@ async function saveSettings(event) {
     setStatus("Einstellungen gespeichert.", "success");
     schedulePreviewRender();
     closePanels();
+    focusMainButton?.click();
     scrollMainContentToTop();
     focusMainButton?.focus();
   } catch (error) {
@@ -2526,6 +2738,7 @@ async function createAdminUser(event) {
   }
 
   try {
+    setLoading(true, "Benutzer wird angelegt und synchronisiert...");
     const response = await api("/api/admin/users", {
       method: "POST",
       body: JSON.stringify({ username, defaultPassword })
@@ -2546,6 +2759,8 @@ async function createAdminUser(event) {
     adminNewUsernameInput?.focus();
   } catch (error) {
     setStatus(error.message || "Benutzer konnte nicht angelegt werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -2607,6 +2822,7 @@ async function deleteAdminUser(username) {
   }
 
   try {
+    setLoading(true, "Benutzer wird gelöscht und synchronisiert...");
     const response = await api(`/api/admin/users/${encodeURIComponent(username)}`, {
       method: "DELETE"
     });
@@ -2660,6 +2876,12 @@ async function submitPasswordChange(event) {
 async function saveCustomer(event) {
   event.preventDefault();
   const customer = readCustomerForm();
+
+  if (!customer.name.trim() && !customer.contactPerson.trim()) {
+    setStatus("Bitte Firmenname oder Kontaktperson eingeben.", "error");
+    customerFields.name?.focus();
+    return;
+  }
 
   try {
     const response = await api(customer.id ? `/api/customers/${customer.id}` : "/api/customers", {
@@ -3299,7 +3521,7 @@ async function handleAuthSubmit(event) {
   if (username !== DEFAULT_USERNAME || password !== DEFAULT_PASSWORD) {
     setStatus("Benutzername oder Kennwort ist nicht korrekt.", "error");
     return;
-    setStatus("Die Kennwörter stimmen nicht überein.", "error");
+    setStatus("Die beiden Kennwörter stimmen nicht überein.", "error");
     return;
   }
 
@@ -3389,10 +3611,10 @@ function showInstallPrompt() {
   installPrompt.hidden = false;
   if (deferredInstallPrompt) {
     installPromptText.textContent =
-      "Installiere die App auf deinem Gerät, damit sie ohne Browserleiste wie eine echte App startet.";
+      "Installiere die App auf deinem Ger\u00E4t, damit sie ohne Browserleiste wie eine echte App startet.";
   } else {
     installPromptText.textContent =
-      "Wenn dein Browser keine direkte Installation anbietet, nutze im Browser-Menü „Zum Startbildschirm hinzufügen“ oder „App installieren“.";
+      "Wenn dein Browser keine direkte Installation anbietet, nutze im Browser-Men\u00FC \u201EZum Startbildschirm hinzuf\u00FCgen\u201C oder \u201EApp installieren\u201C.";
   }
 }
 
@@ -3550,6 +3772,8 @@ function bindDialogs() {
 function bindStaticEvents() {
   invoiceForm.addEventListener("submit", (event) => event.preventDefault());
   settingsForm.addEventListener("submit", saveSettings);
+  settingsForm.addEventListener("input", updateSettingsSaveButtonVisibility);
+  settingsForm.addEventListener("change", updateSettingsSaveButtonVisibility);
   adminUserForm?.addEventListener("submit", createAdminUser);
   saveAdminDefaultPasswordButton?.addEventListener("click", saveAdminDefaultPassword);
   adminDefaultPasswordInput?.addEventListener("input", updateAdminDefaultPasswordButtonVisibility);
@@ -3597,10 +3821,33 @@ function bindStaticEvents() {
     const removeIndex = Number(removeButton.dataset.removeCc);
     const entries = readCcEmailInputs().filter((_, index) => index !== removeIndex);
     renderCcEmailInputs(entries);
+    updateSettingsSaveButtonVisibility();
   });
   customerForm.addEventListener("submit", saveCustomer);
+  customerFields.contactPerson?.addEventListener("input", updateCustomerNameRequirement);
+  customerFields.name?.addEventListener("input", updateCustomerNameRequirement);
+  customerForm.addEventListener("input", updateCustomerFormActionVisibility);
+  customerForm.addEventListener("change", updateCustomerFormActionVisibility);
   articleForm.addEventListener("submit", saveArticle);
   articleForm.addEventListener("input", handleArticleFormLiveInput);
+  articleForm.addEventListener("input", updateArticleFormActionVisibility);
+  articleForm.addEventListener("change", updateArticleFormActionVisibility);
+  articleFields.group?.addEventListener("focus", showArticleGroupSuggestions);
+  articleFields.group?.addEventListener("click", showArticleGroupSuggestions);
+  articleFields.group?.addEventListener("input", () => {
+    renderArticleGroupSuggestions(articleFields.group.value, true);
+  });
+  articleFields.group?.addEventListener("blur", hideArticleGroupSuggestions);
+  articleGroupSuggestions?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-group-option]");
+    if (!option || !articleFields.group) {
+      return;
+    }
+
+    articleFields.group.value = option.dataset.groupOption || "";
+    articleGroupSuggestions.hidden = true;
+    articleFields.group.focus();
+  });
   customersSearchInput?.addEventListener("input", (event) => {
     state.filters.customers = event.target.value || "";
     renderCustomers();
@@ -3703,7 +3950,7 @@ async function bootstrap() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     renderInvoiceHistory();
-    await updateLoadingStep(adminMode ? "Admin-Oberfläche wird gerendert..." : "Rechnungsvorschau wird aufgebaut...");
+    await updateLoadingStep(adminMode ? "Admin-Oberfl\u00E4che wird gerendert..." : "Rechnungsvorschau wird aufgebaut...");
     await renderCanvas();
     if (logoutButton) {
       logoutButton.hidden = false;

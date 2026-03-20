@@ -340,6 +340,52 @@ textarea {
   margin-top: 10px;
 }
 
+.logout-inline-button {
+  justify-self: start;
+  margin-top: 10px;
+  background: rgba(176, 68, 68, 0.12);
+  color: var(--danger);
+}
+
+.logout-inline-button:hover {
+  background: rgba(176, 68, 68, 0.18);
+}
+
+.group-field {
+  position: relative;
+}
+
+.group-suggestions {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 12;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(39, 84, 56, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 28px rgba(39, 84, 56, 0.14);
+}
+
+.group-suggestion {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-suggestion:hover {
+  background: rgba(246, 249, 247, 0.98);
+}
+
 .content-shell {
   min-width: 0;
 }
@@ -1529,23 +1575,25 @@ body.panel-open {
   }
 
   .tool-rail {
-    position: fixed;
+    position: fixed !important;
+    inset: auto 0 0 0;
     left: 0;
     right: 0;
     bottom: 0;
+    width: auto;
+    max-width: none;
     z-index: 70;
     display: grid;
     grid-template-columns: 1fr;
     gap: 0;
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-    border-radius: 22px 22px 0 0;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(245, 250, 247, 0.99)),
-      linear-gradient(180deg, rgba(63, 138, 90, 0.1), transparent);
-    box-shadow: 0 -14px 36px rgba(24, 49, 38, 0.16);
+    border: 0;
+    border-radius: 0;
+    background: rgba(250, 252, 250, 0.98);
+    box-shadow: none;
+    backdrop-filter: blur(8px);
+    transform: none;
+    will-change: auto;
   }
 
   .tool-rail__top,

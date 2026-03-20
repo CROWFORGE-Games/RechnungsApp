@@ -71,7 +71,7 @@ function createAdminSeedPayload() {
         ccEmail: "mathias.mairhofer@gmail.com",
         subjectTemplate: "Rechnung {{invoiceNumber}}",
         bodyTemplate:
-          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
+        "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
       }
     },
     customers: [
@@ -121,7 +121,7 @@ function createTestUserSeedPayload() {
         bankName: "",
         issuerName: "Test User",
         paymentNote: "Fällig innerhalb von 14 Tagen ohne Abzug.",
-        footerNote: "Bitte gib bei der Überweisung die Rechnungsnummer an."
+        footerNote: "Bitte geben Sie bei der Überweisung die Rechnungsnummer an."
       },
       branding: {
         hasInvoiceLogo: false,
@@ -136,7 +136,7 @@ function createTestUserSeedPayload() {
         ccEmail: "",
         subjectTemplate: "Rechnung {{invoiceNumber}}",
         bodyTemplate:
-          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
+        "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Grüße\n{{companyName}}"
       }
     },
     customers: [
@@ -416,12 +416,12 @@ function normalizeLegacyText(value) {
   }
 
   normalized = normalized
-    .replaceAll("?sterreich", "\u00D6sterreich")
-    .replaceAll("?berweisung", "\u00DCberweisung")
-    .replaceAll("Gr\uFFFD?e", "Gr\u00FC\u00DFe")
-    .replaceAll("gr\uFFFD?e", "gr\u00FC\u00DFe")
-    .replaceAll("Stra?e", "Stra\u00DFe")
-    .replaceAll("stra?e", "stra\u00DFe")
+    .replaceAll("Österreich", "\u00D6sterreich")
+    .replaceAll("Überweisung", "\u00DCberweisung")
+    .replaceAll("Gr\uFFFD\uFFFDe", "Gr\u00FC\u00DFe")
+    .replaceAll("gr\uFFFD\uFFFDe", "gr\u00FC\u00DFe")
+    .replaceAll("Stra\uFFFDe", "Stra\u00DFe")
+    .replaceAll("stra\uFFFDe", "stra\u00DFe")
     .replaceAll("Strasse", "Stra\u00DFe")
     .replaceAll("strasse", "stra\u00DFe")
     .replaceAll("\uFFFD\u0013", "\u00D6")
@@ -817,6 +817,16 @@ function buildSheetSyncPayload(user) {
   };
 }
 
+function buildSettingsSyncPayload(user) {
+  return {
+    username: user.username,
+    updatedAt: user.updatedAt,
+    lastActivityAt: user.lastActivityAt || user.updatedAt,
+    lastSeenAt: user.lastSeenAt || "",
+    settings: mergeSettings(user.settings)
+  };
+}
+
 async function requestGoogleSheetsSync(action, payload = {}) {
   if (!isGoogleSheetsSyncConfigured()) {
     return null;
@@ -995,6 +1005,21 @@ async function syncUserToGoogleSheets(user) {
     });
   } catch (error) {
     console.error(`Google-Sheets-Sync fehlgeschlagen (${user.username}).`, error);
+  }
+}
+
+async function syncUserSettingsToGoogleSheets(user) {
+  if (!isGoogleSheetsSyncConfigured()) {
+    return;
+  }
+
+  try {
+    await requestGoogleSheetsSync("upsertUserSettings", {
+      username: user.username,
+      data: buildSettingsSyncPayload(user)
+    });
+  } catch (error) {
+    console.error(`Google-Sheets-Settings-Sync fehlgeschlagen (${user.username}).`, error);
   }
 }
 
@@ -2021,8 +2046,8 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
 
     req.store.users.push(newUser);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    queueGoogleSheetsSync(newUser);
+    await syncUserToGoogleSheets(req.user);
+    await syncUserToGoogleSheets(newUser);
 
     res.status(201).json({
       user: serializeAdminUser(newUser),
@@ -2126,13 +2151,13 @@ app.delete("/api/admin/users/:username", requireAuth, requireAdmin, async (req, 
       try {
         await requestGoogleSheetsSync("deleteUserData", { username: user.username });
       } catch (error) {
-        console.error(`Google-Sheets-Löschen fehlgeschlagen (${user.username}).`, error);
+        console.error(`Google-Sheets-L\u00F6schen fehlgeschlagen (${user.username}).`, error);
       }
     }
 
     res.json({
       ok: true,
-      message: `Benutzer ${user.username} wurde gelöscht.`,
+      message: `Benutzer ${user.username} wurde gel\u00F6scht.`,
       users: await buildAdminUsersResponse(req.store)
     });
   } catch (error) {
@@ -2175,7 +2200,7 @@ app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
     await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
     markUserActivity(req.user);
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    await syncUserSettingsToGoogleSheets(req.user);
     res.status(201).json({ ok: true, settings: getUserSettingsForClient(req.user) });
   } catch (error) {
     next(error);
@@ -2187,7 +2212,7 @@ app.delete("/api/assets/logo/:kind", requireAuth, async (req, res, next) => {
     await removeLogoAsset(req.user, String(req.params.kind || "").trim());
     markUserActivity(req.user);
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
+    await syncUserSettingsToGoogleSheets(req.user);
     res.json({ ok: true, settings: getUserSettingsForClient(req.user) });
   } catch (error) {
     next(error);
@@ -2231,7 +2256,7 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     markUserActivity(currentUser);
 
     await writeStore(req.store);
-    await syncUserToGoogleSheets(currentUser);
+    await syncUserSettingsToGoogleSheets(currentUser);
     res.json({ settings: getUserSettingsForClient(currentUser) });
   } catch (error) {
     next(error);

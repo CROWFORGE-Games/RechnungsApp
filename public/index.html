@@ -244,7 +244,7 @@
         <div class="form-inline-two span-2">
           <label>
             Firmenname
-            <input name="name" type="text" required />
+            <input name="name" type="text" />
           </label>
           <label>
             UID
@@ -286,8 +286,8 @@
           <textarea name="notes" rows="3"></textarea>
         </label>
         <div class="actions span-2 panel-form-actions">
-          <button class="primary" type="submit">Kunde speichern</button>
-          <button class="ghost" type="button" id="resetCustomerForm">Zurücksetzen</button>
+          <button class="primary" id="saveCustomerButton" type="submit" hidden>Kunde speichern</button>
+          <button class="ghost" type="button" id="resetCustomerForm" hidden>Zurücksetzen</button>
         </div>
       </form>
 
@@ -329,14 +329,16 @@
         <div class="form-inline-two span-2">
           <label>
             Gruppe
-            <input name="group" type="text" list="articleGroupOptions" />
+            <div class="group-field">
+              <input name="group" type="text" autocomplete="off" />
+              <div class="group-suggestions" id="articleGroupSuggestions" hidden></div>
+            </div>
           </label>
           <label>
             Artikel-Nr.
             <input name="number" type="text" />
           </label>
         </div>
-        <datalist id="articleGroupOptions"></datalist>
         <label>
           Bezeichnung
           <input name="name" type="text" required />
@@ -360,8 +362,8 @@
           <textarea name="description" rows="3"></textarea>
         </label>
         <div class="actions span-2 panel-form-actions">
-          <button class="primary" type="submit">Artikel speichern</button>
-          <button class="ghost" type="button" id="resetArticleForm">Zurücksetzen</button>
+          <button class="primary" id="saveArticleButton" type="submit" hidden>Artikel speichern</button>
+          <button class="ghost" type="button" id="resetArticleForm" hidden>Zurücksetzen</button>
         </div>
       </form>
 
@@ -432,6 +434,7 @@
                 Kennwort ändern
               </button>
             </label>
+            <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
           </div>
         </details>
 
@@ -544,7 +547,7 @@
           </div>
         </details>
 
-        <details class="settings-section settings-accordion span-2">
+        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="logos">
           <summary class="settings-accordion__summary">Logos</summary>
           <div class="settings-section__grid settings-accordion__content">
             <label class="logo-upload-field">
@@ -571,8 +574,7 @@
         </details>
 
         <div class="actions span-2 panel-form-actions">
-          <button class="primary" type="submit">Einstellungen speichern</button>
-          <button class="ghost logout-inline-button" id="logoutButtonSettings" type="button">Abmelden</button>
+          <button class="primary" id="saveSettingsButton" type="submit" hidden>Einstellungen speichern</button>
         </div>
         <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.14</span></div>
       </form>

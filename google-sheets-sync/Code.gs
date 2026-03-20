@@ -98,6 +98,11 @@ function doPost(e) {
       return jsonResponse({ ok: true });
     }
 
+    if (payload.action === 'upsertUserSettings') {
+      upsertUserSettings_(String(payload.username || '').trim(), payload.data || {});
+      return jsonResponse({ ok: true });
+    }
+
     if (payload.action === 'listUsers') {
       return jsonResponse({ ok: true, users: listUsers_() });
     }
@@ -273,6 +278,58 @@ function upsertUserData_(username, data) {
     payload_json: JSON.stringify(entry || {}),
     schema_version: CURRENT_SCHEMA_VERSION
   })));
+}
+
+function upsertUserSettings_(username, data) {
+  if (!username) {
+    throw new Error('Username missing');
+  }
+
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const userSheet = spreadsheet.getSheetByName(SHEETS.users.name);
+  const timestamp = new Date().toISOString();
+  const userHeaderMap = getHeaderMap_(userSheet);
+
+  const settings = data.settings || {};
+  const business = settings.business || {};
+  const invoice = settings.invoice || {};
+  const email = settings.email || {};
+  const auth = settings.auth || {};
+  const branding = settings.branding || {};
+
+  upsertSingleRow_(userSheet, userHeaderMap, username, 'username', {
+    username: username,
+    company_name: business.companyName || '',
+    sender_line: business.senderLine || '',
+    address_line_1: business.addressLine1 || '',
+    address_line_2: business.addressLine2 || '',
+    postal_code: business.postalCode || '',
+    city: business.city || '',
+    country: business.country || '',
+    phone: business.phone || '',
+    business_email: business.email || '',
+    uid: business.uid || '',
+    bank_name: business.bankName || '',
+    iban: business.iban || '',
+    bic: business.bic || '',
+    issuer_name: business.issuerName || '',
+    payment_note: business.paymentNote || '',
+    footer_note: business.footerNote || '',
+    invoice_title: invoice.title || '',
+    counter_year: invoice.counterYear || '',
+    counter_value: invoice.counterValue || 0,
+    cc_email: email.ccEmail || '',
+    email_subject: email.subjectTemplate || '',
+    email_body: email.bodyTemplate || '',
+    password: auth.password || '',
+    default_user_password: auth.defaultUserPassword || 'admin',
+    has_invoice_logo: branding.hasInvoiceLogo ? 'TRUE' : 'FALSE',
+    has_app_logo: branding.hasAppLogo ? 'TRUE' : 'FALSE',
+    updated_at: timestamp,
+    last_seen_at: String(data.lastSeenAt || ''),
+    settings_json: JSON.stringify(settings || {}),
+    schema_version: CURRENT_SCHEMA_VERSION
+  });
 }
 
 function listUsers_() {

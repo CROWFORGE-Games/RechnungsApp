@@ -24,6 +24,7 @@ const state = {
     mode: "login"
   },
   settings: null,
+  resendConfigured: false,
   adminUsers: [],
   adminExpandedUsers: [],
   customers: [],
@@ -161,7 +162,6 @@ const invoiceHistory = document.getElementById("invoiceHistory");
 const invoiceCanvas = document.getElementById("invoiceCanvas");
 const canvasContext = invoiceCanvas.getContext("2d");
 const addInvoiceItemButton = document.getElementById("addInvoiceItem");
-const addInvoiceItemInPanelButton = document.getElementById("addInvoiceItemInPanel");
 const createInvoiceButton = document.getElementById("createInvoiceButton");
 const navToggle = document.getElementById("navToggle");
 const authOverlay = document.getElementById("authOverlay");
@@ -368,7 +368,7 @@ function createEmptyItem() {
     articleNumber: "",
     description: "",
     quantity: 1,
-    unit: "Stunden",
+    unit: "",
     unitPrice: 0,
     taxRate: 20,
     discount: 0,
@@ -385,65 +385,40 @@ function roundCurrency(value) {
   return Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
 }
 
+// Singleton-Formatter für Performance (keine Neuinstanziierung pro Aufruf)
+const FMT_CURRENCY = new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" });
+const FMT_AMOUNT   = new Intl.NumberFormat("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const FMT_TIME     = new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit" });
+const FMT_DATE     = new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
+const FMT_DATETIME = new Intl.DateTimeFormat("de-AT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
 function formatCurrency(value) {
-  return new Intl.NumberFormat("de-AT", {
-    style: "currency",
-    currency: "EUR"
-  }).format(toNumber(value));
+  return FMT_CURRENCY.format(toNumber(value));
 }
 
 function formatTime(value) {
-  if (!value) {
-    return "";
-  }
-
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("de-AT", {
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+  if (Number.isNaN(date.getTime())) return "";
+  return FMT_TIME.format(date);
 }
 
 function formatDateTime(value) {
-  if (!value) {
-    return "";
-  }
-
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("de-AT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+  if (Number.isNaN(date.getTime())) return "";
+  return FMT_DATETIME.format(date);
 }
 
 function formatAmount(value) {
-  return new Intl.NumberFormat("de-AT", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(toNumber(value));
+  return FMT_AMOUNT.format(toNumber(value));
 }
 
 function formatDate(value) {
-  if (!value) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("de-AT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
-  }).format(new Date(value));
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return FMT_DATE.format(date);
 }
 
 function escapeHtml(value) {
@@ -523,7 +498,7 @@ function isAdminUser() {
 function normalizeArticle(article) {
   return {
     ...article,
-    unit: String(article.unit || "Stunden").trim(),
+    unit: String(article.unit || "").trim(),
     unitPrice: toNumber(article.unitPrice),
     taxRate: toNumber(article.taxRate, 20)
   };
@@ -731,6 +706,11 @@ function applyRoleBasedUi() {
   if (mainRailLabel) {
     mainRailLabel.textContent = adminMode ? "Benutzer" : "Rechnungen";
   }
+  // Benutzername unter dem Logo in der Nav anzeigen
+  const navUserLabel = document.getElementById("navUserLabel");
+  if (navUserLabel) {
+    navUserLabel.textContent = state.auth.username || "";
+  }
   if (customersRailButton) {
     customersRailButton.hidden = adminMode;
   }
@@ -738,10 +718,10 @@ function applyRoleBasedUi() {
     articlesRailButton.hidden = adminMode;
   }
   if (customersRailLabel) {
-    customersRailLabel.textContent = "Kunde hinzufügen";
+    customersRailLabel.textContent = "Kunden";
   }
   if (articlesRailLabel) {
-    articlesRailLabel.textContent = "Artikel hinzufügen";
+    articlesRailLabel.textContent = "Artikel";
   }
   if (settingsPanelTitle) {
     settingsPanelTitle.textContent = adminMode ? "Benutzer" : "Firma, Bank und E-Mail";
@@ -772,6 +752,17 @@ function openPanel(panelId) {
   if (!targetPanel || targetPanel.hidden) {
     return;
   }
+
+  // Formulare beim Panelwechsel zurücksetzen
+  if (state.openPanelId !== panelId) {
+    if (customerForm && !customerForm.hidden) {
+      customerForm.hidden = true;
+    }
+    if (articleForm && !articleForm.hidden) {
+      articleForm.hidden = true;
+    }
+  }
+
   state.openPanelId = panelId;
   setActiveRail(panelId);
   panelOverlay.hidden = false;
@@ -785,6 +776,10 @@ function openPanel(panelId) {
 }
 
 function closePanels() {
+  // Formulare beim Schließen verstecken
+  if (customerForm) customerForm.hidden = true;
+  if (articleForm) articleForm.hidden = true;
+
   state.openPanelId = null;
   setActiveRail(null);
   panelOverlay.hidden = true;
@@ -1037,6 +1032,10 @@ function signaturePointFromEvent(event) {
 }
 
 function refreshSendPreview() {
+  // Höhe an invoiceCanvas anpassen (mehrseitig)
+  if (sendPreviewCanvas.height !== invoiceCanvas.height) {
+    sendPreviewCanvas.height = invoiceCanvas.height;
+  }
   sendPreviewContext.clearRect(0, 0, sendPreviewCanvas.width, sendPreviewCanvas.height);
   sendPreviewContext.drawImage(invoiceCanvas, 0, 0, sendPreviewCanvas.width, sendPreviewCanvas.height);
 }
@@ -1049,7 +1048,14 @@ async function loadTemplate() {
   const candidates = ["/assets/invoice-template.png", "/assets/image.png", "/assets/template.png"];
   for (const candidate of candidates) {
     try {
-      templateState.image = await loadImage(candidate);
+      // Kein Date.now()-Cache-Busting hier – Template ändert sich nicht im Betrieb
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = candidate;
+      });
+      templateState.image = img;
       templateState.loaded = true;
       templateHint.textContent = `Vorlage geladen: ${candidate}`;
       return templateState.image;
@@ -1524,6 +1530,26 @@ function canvasToPngDataUrl(canvas) {
   });
 }
 
+// Erstellt pro Canvas-Seite (je 1123px) ein eigenes PNG für mehrseitige PDFs
+function buildPageSlices(canvas) {
+  const PAGE_H = 1123;
+  const totalHeight = canvas.height;
+  if (totalHeight <= PAGE_H) {
+    return null; // Einzelseite – kein Slicing nötig
+  }
+  const numPages = Math.ceil(totalHeight / PAGE_H);
+  const slices = [];
+  for (let p = 0; p < numPages; p++) {
+    const slice = document.createElement("canvas");
+    slice.width = canvas.width;
+    slice.height = Math.min(PAGE_H, totalHeight - p * PAGE_H);
+    const ctx = slice.getContext("2d");
+    ctx.drawImage(canvas, 0, -p * PAGE_H);
+    slices.push(slice.toDataURL("image/png"));
+  }
+  return slices;
+}
+
 async function previewSelectedLogo(kind, file) {
   if (!file) {
     refreshBrandAssets();
@@ -1601,7 +1627,7 @@ async function removeLogoAsset(kind) {
   });
 }
 
-function fillCustomerForm(customer = null) {
+function fillCustomerForm(customer = null, showForm = true) {
   const entry = customer || {
     id: "",
     customerNumber: nextCustomerNumber(),
@@ -1629,9 +1655,10 @@ function fillCustomerForm(customer = null) {
   customerFields.email.value = entry.email || "";
   customerFields.uid.value = entry.uid || "";
   customerFields.notes.value = entry.notes || "";
+  if (showForm) customerForm.hidden = false;
   updateCustomerNameRequirement();
   updateCustomerFormActionVisibility();
-  scrollPanelFormToTop(customerForm);
+  if (showForm) scrollPanelFormToTop(customerForm);
 }
 
 function getCustomerDisplayName(customer = {}) {
@@ -1714,16 +1741,16 @@ function updateCustomerFormActionVisibility() {
 }
 
 function resetCustomerForm() {
-  fillCustomerForm(null);
+  fillCustomerForm(null, false);
 }
 
-function fillArticleForm(article = null) {
+function fillArticleForm(article = null, showForm = true) {
   const entry = article || {
     id: "",
     group: "",
     number: nextArticleNumber(),
     name: "",
-    unit: "Stunden",
+    unit: "",
     unitPrice: "",
     taxRate: 20,
     description: ""
@@ -1733,13 +1760,14 @@ function fillArticleForm(article = null) {
   articleFields.group.value = entry.group || "";
   articleFields.number.value = entry.number || nextArticleNumber();
   articleFields.name.value = entry.name || "";
-  articleFields.unit.value = entry.unit || "Stunden";
+  articleFields.unit.value = entry.unit || "";
   articleFields.unitPrice.value = entry.unitPrice ?? "";
   articleFields.taxRate.value = entry.taxRate ?? 20;
   articleFields.description.value = entry.description || "";
   renderArticleGroupSuggestions(articleFields.group?.value || "", false);
+  if (showForm) articleForm.hidden = false;
   updateArticleFormActionVisibility();
-  scrollPanelFormToTop(articleForm);
+  if (showForm) scrollPanelFormToTop(articleForm);
 }
 
 function getArticleGroups() {
@@ -1798,7 +1826,7 @@ function readArticleForm() {
     number: articleFields.number.value.trim(),
     name: articleFields.name.value.trim(),
     description: articleFields.description.value.trim(),
-    unit: articleFields.unit.value.trim() || "Stunden",
+    unit: articleFields.unit.value.trim(),
     unitPrice: toNumber(articleFields.unitPrice.value),
     taxRate: toNumber(articleFields.taxRate.value, 20)
   };
@@ -1826,7 +1854,7 @@ function getSavedArticleFormPayload() {
       group: "",
       number: nextArticleNumber(),
       name: "",
-      unit: "Stunden",
+      unit: "",
       unitPrice: 0,
       taxRate: 20,
       description: ""
@@ -1846,7 +1874,7 @@ function updateArticleFormActionVisibility() {
 }
 
 function resetArticleForm() {
-  fillArticleForm(null);
+  fillArticleForm(null, false);
 }
 
 function calculateItem(item) {
@@ -1935,27 +1963,30 @@ function renderCustomers() {
   }
 
   customersTable.innerHTML = entries
-    .map(
-      (customer) => `
+    .map((customer) => {
+      const displayName = getCustomerDisplayName(customer) || "Ohne Namen";
+      const location = [customer.postalCode, customer.city].filter(Boolean).join(" ");
+      return `
         <tr>
-          <td data-label="Nr.">${escapeHtml(customer.customerNumber)}</td>
-          <td data-label="Kunde">
-            <strong>${escapeHtml(getCustomerDisplayName(customer) || "Ohne Namen")}</strong>
-            ${customer.name && customer.contactPerson ? `<div>${escapeHtml(customer.contactPerson)}</div>` : ""}
-          </td>
-          <td data-label="Ort">${escapeHtml(
-            [customer.postalCode, customer.city].filter(Boolean).join(" ")
-          )}</td>
-          <td data-label="E-Mail">${escapeHtml(customer.email)}</td>
-          <td data-label="Aktion">
-            <div class="row-actions">
-              <button class="secondary" type="button" data-action="edit-customer" data-id="${escapeHtml(customer.id)}">Bearbeiten</button>
-              <button class="danger" type="button" data-action="delete-customer" data-id="${escapeHtml(customer.id)}">Löschen</button>
+          <td colspan="5" style="padding: 4px 0; border: none;">
+            <div class="customer-card">
+              <div class="customer-card__head">
+                <strong class="customer-card__name">${escapeHtml(displayName)}</strong>
+                <span class="customer-card__number">Nr. ${escapeHtml(customer.customerNumber || "–")}</span>
+              </div>
+              ${customer.name && customer.contactPerson ? `<p class="customer-card__line">${escapeHtml(customer.contactPerson)}</p>` : ""}
+              ${location ? `<p class="customer-card__line">${escapeHtml(location)}</p>` : ""}
+              ${customer.email ? `<p class="customer-card__line customer-card__email">${escapeHtml(customer.email)}</p>` : ""}
+              ${customer.phone ? `<p class="customer-card__line">${escapeHtml(customer.phone)}</p>` : ""}
+              <div class="customer-card__actions">
+                <button class="secondary" type="button" data-action="edit-customer" data-id="${escapeHtml(customer.id)}">Bearbeiten</button>
+                <button class="danger" type="button" data-action="delete-customer" data-id="${escapeHtml(customer.id)}">Löschen</button>
+              </div>
             </div>
           </td>
         </tr>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
@@ -1974,25 +2005,31 @@ function renderArticles() {
   }
 
   articlesTable.innerHTML = entries
-    .map(
-      (article) => `
+    .map((article) => {
+      const meta = [
+        article.unit ? `Einheit: ${article.unit}` : "",
+        article.taxRate != null ? `MwSt.: ${article.taxRate} %` : ""
+      ].filter(Boolean).join(" · ");
+      return `
         <tr>
-          <td data-label="Nr.">${escapeHtml(article.number)}</td>
-          <td data-label="Bezeichnung">
-            <strong>${escapeHtml(article.name)}</strong>
-            ${article.description ? `<div>${escapeHtml(article.description)}</div>` : ""}
-          </td>
-          <td data-label="Preis">${escapeHtml(formatCurrency(article.unitPrice))}</td>
-          <td data-label="Gruppe">${escapeHtml(article.group)}</td>
-          <td data-label="Aktion">
-            <div class="row-actions">
-              <button class="secondary" type="button" data-action="edit-article" data-id="${escapeHtml(article.id)}">Bearbeiten</button>
-              <button class="danger" type="button" data-action="delete-article" data-id="${escapeHtml(article.id)}">Löschen</button>
+          <td colspan="5" style="padding: 4px 0; border: none;">
+            <div class="customer-card">
+              <div class="customer-card__head">
+                <strong class="customer-card__name">${escapeHtml(article.name)}</strong>
+                <span class="customer-card__number">${escapeHtml(formatCurrency(article.unitPrice))}</span>
+              </div>
+              ${article.group ? `<p class="customer-card__line"><span class="article-badge">${escapeHtml(article.group)}</span></p>` : ""}
+              ${article.description ? `<p class="customer-card__line">${escapeHtml(article.description)}</p>` : ""}
+              ${meta ? `<p class="customer-card__line" style="font-size:0.8rem">${escapeHtml(meta)}</p>` : ""}
+              <div class="customer-card__actions">
+                <button class="secondary" type="button" data-action="edit-article" data-id="${escapeHtml(article.id)}">Bearbeiten</button>
+                <button class="danger" type="button" data-action="delete-article" data-id="${escapeHtml(article.id)}">Löschen</button>
+              </div>
             </div>
           </td>
         </tr>
-      `
-    )
+      `;
+    })
     .join("");
 
   renderArticleGroupSuggestions(articleFields.group?.value || "", false);
@@ -2207,7 +2244,7 @@ function renderInvoiceItems() {
               </div>
               <div class="invoice-field-stack">
                 <span class="invoice-field-caption">Einheit</span>
-                <input name="unit" type="text" value="${escapeHtml(item.unit || "Stunden")}" />
+                <input name="unit" type="text" value="${escapeHtml(item.unit || "")}" />
               </div>
             </div>
           </td>
@@ -2228,7 +2265,7 @@ function readInvoiceRow(row) {
     description: row.querySelector('[name="description"]').value.trim(),
     articleNumber: row.querySelector('[name="articleNumber"]').value.trim(),
     quantity: toNumber(row.querySelector('[name="quantity"]').value, 0),
-    unit: row.querySelector('[name="unit"]').value.trim() || "Stunden",
+    unit: row.querySelector('[name="unit"]').value.trim() || "",
     unitPrice: toNumber(row.querySelector('[name="unitPrice"]').value, 0),
     taxRate: toNumber(row.querySelector('[name="taxRate"]').value, 0),
     discount: toNumber(row.querySelector('[name="discount"]').value, 0)
@@ -2275,7 +2312,7 @@ function applyArticleToItem(item, article) {
     articleId: article.id,
     articleNumber: article.number || "",
     description: article.name || item.description,
-    unit: article.unit || item.unit || "Stunden",
+    unit: article.unit || item.unit || "",
     unitPrice: toNumber(article.unitPrice),
     taxRate: toNumber(article.taxRate, 20),
     detailsExpanded: Boolean(item.detailsExpanded)
@@ -2294,7 +2331,7 @@ function syncDraftItemsFromArticle(articleId, draftArticle) {
       ...item,
       articleNumber: draftArticle.number || item.articleNumber,
       description: draftArticle.name || item.description,
-      unit: draftArticle.unit || item.unit || "Stunden",
+      unit: draftArticle.unit || item.unit || "",
       unitPrice: toNumber(draftArticle.unitPrice, item.unitPrice),
       taxRate: toNumber(draftArticle.taxRate, item.taxRate)
     };
@@ -2307,6 +2344,9 @@ function syncDraftItemsFromArticle(articleId, draftArticle) {
   }
 }
 
+// Share-Icon SVG (identisch mit Send-Dialog)
+const SHARE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51 15.42 17.49"/><path d="M15.41 6.51 8.59 10.49"/></svg>`;
+
 function renderInvoiceHistory() {
   if (!state.invoices.length) {
     invoiceHistory.innerHTML = '<div class="empty-state">Noch keine Rechnungen erstellt.</div>';
@@ -2316,25 +2356,35 @@ function renderInvoiceHistory() {
   invoiceHistory.innerHTML = state.invoices
     .slice(0, 8)
     .map((invoice) => {
-      const emailMessage = invoice.email?.message || "Noch kein Versandstatus";
+      const emailStatus = invoice.email?.status || "";
       const fileLink = invoice.files?.pdfUrl
         ? `<a href="${escapeHtml(invoice.files.pdfUrl)}" target="_blank" rel="noreferrer">PDF öffnen</a>`
         : "";
       const createdTime = formatTime(invoice.createdAt);
 
+      let badgeClass = "status-badge status-badge--neutral";
+      let badgeLabel = "Offen";
+      if (emailStatus === "sent") { badgeClass = "status-badge status-badge--success"; badgeLabel = "Gesendet"; }
+      else if (emailStatus === "external-app") { badgeClass = "status-badge status-badge--info"; badgeLabel = "Mail-App"; }
+      else if (emailStatus === "share-preview") { badgeClass = "status-badge status-badge--info"; badgeLabel = "Geteilt"; }
+      else if (emailStatus === "failed") { badgeClass = "status-badge status-badge--error"; badgeLabel = "Fehlgeschlagen"; }
+      else if (emailStatus === "skipped") { badgeClass = "status-badge status-badge--neutral"; badgeLabel = "Übersprungen"; }
+
       return `
         <article class="history-item">
           <div class="history-item__head">
             <strong>${escapeHtml(invoice.invoiceNumber)}</strong>
-            ${createdTime ? `<span class="history-item__time">${escapeHtml(createdTime)}</span>` : ""}
+            <div class="history-item__head-right">
+              <span class="${badgeClass}">${badgeLabel}</span>
+              ${createdTime ? `<span class="history-item__time">${escapeHtml(createdTime)}</span>` : ""}
+            </div>
           </div>
-          <p>${escapeHtml(invoice.customer?.name || "Unbekannter Kunde")}</p>
-          <p>${escapeHtml(formatCurrency(invoice.totals?.grossTotal || 0))}</p>
-          <p>${escapeHtml(emailMessage)}</p>
+          <p class="history-item__customer">${escapeHtml(invoice.customer?.name || "Unbekannter Kunde")}</p>
+          <p class="history-item__amount">${escapeHtml(formatCurrency(invoice.totals?.grossTotal || 0))}</p>
           <div class="history-item__actions">
             ${fileLink}
-            <button class="secondary" type="button" data-resend-invoice="${escapeHtml(invoice.id)}">Erneut senden</button>
-            <button class="ghost" type="button" data-share-invoice="${escapeHtml(invoice.id)}">Teilen</button>
+            <button class="secondary history-resend-btn" type="button" data-resend-invoice="${escapeHtml(invoice.id)}">Erneut senden</button>
+            <button class="ghost history-share-btn" type="button" data-share-invoice="${escapeHtml(invoice.id)}" aria-label="Teilen" title="Teilen">${SHARE_ICON_SVG}</button>
           </div>
         </article>
       `;
@@ -2429,16 +2479,9 @@ async function renderCanvas() {
     return;
   }
 
+  const PAGE_HEIGHT = 1123;
+  const PAGE_WIDTH = 794;
   const headerShift = logo ? 0 : -58;
-
-  canvasContext.clearRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
-  canvasContext.fillStyle = "#ffffff";
-  canvasContext.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
-  if (template) {
-    canvasContext.drawImage(template, 0, 0, invoiceCanvas.width, invoiceCanvas.height);
-  } else {
-    drawFallbackLayout(canvasContext, headerShift);
-  }
 
   const customer = selectedCustomer();
   const totals = calculateDraftTotals();
@@ -2447,21 +2490,53 @@ async function renderCanvas() {
   const invoiceNumber = previewInvoiceNumber();
   const validItems = getValidInvoiceItems();
 
+  // --- Berechne wie viele Seiten benötigt werden ---
+  const ITEMS_START_Y = 430 + headerShift;
+  const FIRST_PAGE_ITEMS_END = PAGE_HEIGHT - 220; // Platz für Summen
+  const CONT_PAGE_ITEMS_START = 160;
+  const CONT_PAGE_ITEMS_END = PAGE_HEIGHT - 220;
+
+  let neededPages = 1;
+  let testY = ITEMS_START_Y;
+  let pageBreaks = []; // item-Indizes wo neue Seite beginnt
+  validItems.forEach((item, i) => {
+    const rowH = toNumber(item.discount) > 0 ? 70 : 54;
+    const limit = neededPages === 1 ? FIRST_PAGE_ITEMS_END : CONT_PAGE_ITEMS_END;
+    if (testY + rowH > limit && i > 0) {
+      pageBreaks.push(i);
+      neededPages++;
+      testY = CONT_PAGE_ITEMS_START;
+    }
+    testY += rowH;
+  });
+
+  // Canvas-Höhe anpassen
+  const totalHeight = PAGE_HEIGHT * neededPages;
+  if (invoiceCanvas.height !== totalHeight) {
+    invoiceCanvas.height = totalHeight;
+  }
+
+  canvasContext.clearRect(0, 0, PAGE_WIDTH, totalHeight);
+  canvasContext.fillStyle = "#ffffff";
+  canvasContext.fillRect(0, 0, PAGE_WIDTH, totalHeight);
+
+  // --- Seite 1: Template / Fallback zeichnen ---
+  if (template) {
+    canvasContext.drawImage(template, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+  } else {
+    drawFallbackLayout(canvasContext, headerShift);
+  }
+
+  // --- Logo ---
   if (logo) {
     const maxWidth = 180;
     const maxHeight = 78;
     const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height, 1);
-    const drawWidth = logo.width * ratio;
-    const drawHeight = logo.height * ratio;
-    canvasContext.drawImage(logo, 66, 46, drawWidth, drawHeight);
+    canvasContext.drawImage(logo, 66, 46, logo.width * ratio, logo.height * ratio);
   }
 
-  canvasContext.fillStyle = "#101010";
-  canvasContext.textBaseline = "top";
-  canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
-  canvasContext.fillStyle = "#2e2e2e";
-
   canvasContext.fillStyle = "#111111";
+  canvasContext.textBaseline = "top";
   canvasContext.font = '14px Calibri, Candara, "Segoe UI", sans-serif';
   const addressLines = [
     business.companyName,
@@ -2470,7 +2545,6 @@ async function renderCanvas() {
     [business.postalCode, business.city].filter(Boolean).join(" ").trim(),
     business.country
   ].filter(Boolean);
-
   addressLines.forEach((line, index) => {
     canvasContext.fillText(line, 66, 190 + headerShift + index * 20);
   });
@@ -2487,39 +2561,108 @@ async function renderCanvas() {
         customer.uid ? `UID-Nr.:      ${customer.uid}` : ""
       ].filter(Boolean)
     : ["Bitte Kunde auswählen"];
-
   customerInfoLines.forEach((line, index) => {
     canvasContext.fillText(line, 446, 212 + headerShift + index * 22);
   });
+
   canvasContext.font = 'bold 18px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, 345 + headerShift);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   if (state.invoiceDraft.reference) {
     canvasContext.fillText(`zu Bst.: ${state.invoiceDraft.reference}`, 66, 373 + headerShift);
   }
-
   canvasContext.textAlign = "right";
   canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, 345 + headerShift);
   canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, 369 + headerShift);
   canvasContext.textAlign = "left";
 
-  const tableTop = 404 + headerShift;
-  canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
-  canvasContext.textBaseline = "middle";
-  canvasContext.fillText("Pos", 68, tableTop);
-  canvasContext.fillText("Beschreibung", 98, tableTop);
-  canvasContext.textAlign = "right";
-  canvasContext.fillText("Einzelpreis €", 536, tableTop);
-  canvasContext.fillText("Menge", 644, tableTop);
-  canvasContext.fillText("Summe €", 710, tableTop);
-  canvasContext.textAlign = "left";
-  canvasContext.textBaseline = "top";
+  // --- Tabellenkopf Seite 1 ---
+  const drawTableHeader = (pageOffsetY) => {
+    const tableTop = pageOffsetY + 30;
+    canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.textBaseline = "middle";
+    canvasContext.fillStyle = "#111111";
+    canvasContext.fillText("Pos", 68, tableTop);
+    canvasContext.fillText("Beschreibung", 98, tableTop);
+    canvasContext.textAlign = "right";
+    canvasContext.fillText("Einzelpreis €", 536, tableTop);
+    canvasContext.fillText("Menge", 644, tableTop);
+    canvasContext.fillText("Summe €", 710, tableTop);
+    canvasContext.textAlign = "left";
+    canvasContext.textBaseline = "top";
+    // Trennlinie unter Header
+    canvasContext.strokeStyle = "#cccccc";
+    canvasContext.lineWidth = 0.8;
+    canvasContext.beginPath();
+    canvasContext.moveTo(66, tableTop + 14);
+    canvasContext.lineTo(738, tableTop + 14);
+    canvasContext.stroke();
+    return tableTop + 26;
+  };
 
-  let itemY = 430 + headerShift;
+  const drawContinuationHeader = (pageIndex) => {
+    const offsetY = pageIndex * PAGE_HEIGHT;
+    // Hintergrundrectangle
+    canvasContext.fillStyle = "#f5f5f5";
+    canvasContext.fillRect(0, offsetY, PAGE_WIDTH, 130);
+    canvasContext.fillStyle = "#111111";
+    canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.textBaseline = "top";
+    canvasContext.fillText(`${invoiceTitle} ${invoiceNumber} – Seite ${pageIndex + 1} von ${neededPages}`, 66, offsetY + 16);
+    canvasContext.font = '12px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.fillStyle = "#444444";
+    canvasContext.fillText(
+      `Kunde: ${customer ? customer.name : "-"}  |  Datum: ${formatDate(state.invoiceDraft.issueDate)}`,
+      66, offsetY + 36
+    );
+    canvasContext.strokeStyle = "#cccccc";
+    canvasContext.lineWidth = 1;
+    canvasContext.beginPath();
+    canvasContext.moveTo(66, offsetY + 56);
+    canvasContext.lineTo(738, offsetY + 56);
+    canvasContext.stroke();
+  };
+
+  // Seitenzahl auf Seite 1 wenn mehrseitig
+  if (neededPages > 1) {
+    canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.fillStyle = "#666666";
+    canvasContext.textAlign = "right";
+    canvasContext.fillText(`Seite 1 von ${neededPages}`, 738, 345 + headerShift + 24);
+    canvasContext.textAlign = "left";
+    canvasContext.fillStyle = "#111111";
+  }
+
+  // --- Positionen zeichnen ---
+  let currentPage = 0;
+  let itemY = drawTableHeader(404 + headerShift);
+
+  // Continuation-Header für Folgeseiten
+  for (let p = 1; p < neededPages; p++) {
+    if (template) {
+      canvasContext.drawImage(template, 0, p * PAGE_HEIGHT, PAGE_WIDTH, PAGE_HEIGHT);
+    } else {
+      canvasContext.fillStyle = "#ffffff";
+      canvasContext.fillRect(0, p * PAGE_HEIGHT, PAGE_WIDTH, PAGE_HEIGHT);
+    }
+    drawContinuationHeader(p);
+  }
+
   validItems.forEach((item, index) => {
     const current = calculateItem(item);
     const hasDiscount = toNumber(item.discount) > 0;
+    const rowH = hasDiscount ? 70 : 54;
+
+    // Seitenumbruch prüfen
+    if (pageBreaks.includes(index)) {
+      currentPage++;
+      itemY = currentPage * PAGE_HEIGHT + CONT_PAGE_ITEMS_START;
+      itemY = drawTableHeader(currentPage * PAGE_HEIGHT + 70);
+    }
+
+    canvasContext.fillStyle = "#111111";
     canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.textBaseline = "top";
     canvasContext.fillText(String(index + 1), 68, itemY);
     canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.fillText(item.description, 98, itemY);
@@ -2540,19 +2683,24 @@ async function renderCanvas() {
     );
     canvasContext.fillText(formatAmount(current.net), 710, itemY);
     canvasContext.textAlign = "left";
-    itemY += hasDiscount ? 70 : 54;
+    itemY += rowH;
   });
 
+  // --- Summen (immer auf letzter Seite) ---
+  const lastPageOffsetY = currentPage * PAGE_HEIGHT;
+  const sumDividerY = Math.max(itemY - 10, lastPageOffsetY + 468 + (currentPage === 0 ? headerShift : 0));
   canvasContext.strokeStyle = "#202020";
   canvasContext.lineWidth = 1;
   canvasContext.beginPath();
-  canvasContext.moveTo(66, Math.max(itemY - 10, 468 + headerShift));
-  canvasContext.lineTo(738, Math.max(itemY - 10, 468 + headerShift));
+  canvasContext.moveTo(66, sumDividerY);
+  canvasContext.lineTo(738, sumDividerY);
   canvasContext.stroke();
 
-  const totalsStartY = Math.max(itemY + 18, 500 + headerShift);
+  const totalsStartY = Math.max(itemY + 18, lastPageOffsetY + 500 + (currentPage === 0 ? headerShift : 0));
+
   const drawAmountLine = (label, value, y, bold = false) => {
     canvasContext.textAlign = "left";
+    canvasContext.fillStyle = "#111111";
     canvasContext.font = `${bold ? "bold " : ""}${bold ? "16" : "14"}px Calibri, Candara, "Segoe UI", sans-serif`;
     canvasContext.fillText(label, 494, y);
     canvasContext.textAlign = "right";
@@ -2585,38 +2733,53 @@ async function renderCanvas() {
 
   let blockY = totalsStartY + 126;
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+  canvasContext.fillStyle = "#111111";
   paymentLines.forEach((line) => {
     drawWrappedText(canvasContext, line, 66, blockY, 560, 18, 3);
     blockY += 22;
   });
 
+  const footerBaseY = lastPageOffsetY + (currentPage === 0 ? 956 : PAGE_HEIGHT - 167);
   if (business.footerNote) {
-    drawWrappedText(canvasContext, business.footerNote, 66, Math.max(blockY + 26, 956), 610, 18, 3);
+    drawWrappedText(canvasContext, business.footerNote, 66, Math.max(blockY + 26, footerBaseY), 610, 18, 3);
   }
 
   const footerLine = [business.bankName, business.iban, business.bic, business.uid]
     .filter(Boolean)
     .join("; ");
   if (footerLine) {
-    canvasContext.fillText(footerLine, 58, 1064);
+    canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.fillStyle = "#333333";
+    canvasContext.fillText(footerLine, 58, lastPageOffsetY + PAGE_HEIGHT - 59);
+  }
+
+  // Seitennummern auf allen Seiten
+  if (neededPages > 1) {
+    for (let p = 0; p < neededPages; p++) {
+      canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
+      canvasContext.fillStyle = "#888888";
+      canvasContext.textAlign = "right";
+      canvasContext.fillText(`Seite ${p + 1} von ${neededPages}`, 738, p * PAGE_HEIGHT + PAGE_HEIGHT - 20);
+      canvasContext.textAlign = "left";
+    }
   }
 
   if (state.invoiceDraft.signatureDataUrl) {
-    const signatureImage = await loadInlineImage(state.invoiceDraft.signatureDataUrl).catch(
-      () => null
-    );
+    const signatureImage = await loadInlineImage(state.invoiceDraft.signatureDataUrl).catch(() => null);
     if (signatureImage) {
       const maxWidth = 150;
       const maxHeight = 56;
       const ratio = Math.min(maxWidth / signatureImage.width, maxHeight / signatureImage.height, 1);
       const drawWidth = signatureImage.width * ratio;
       const drawHeight = signatureImage.height * ratio;
-      canvasContext.drawImage(signatureImage, 560, 900, drawWidth, drawHeight);
+      canvasContext.drawImage(signatureImage, 560, lastPageOffsetY + PAGE_HEIGHT - 223, drawWidth, drawHeight);
       canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
-      canvasContext.fillText("Kundenunterschrift", 560, 962);
+      canvasContext.fillStyle = "#111111";
+      canvasContext.fillText("Kundenunterschrift", 560, lastPageOffsetY + PAGE_HEIGHT - 161);
     }
   }
 }
+
 
 function schedulePreviewRender() {
   window.clearTimeout(previewTimer);
@@ -3093,7 +3256,13 @@ function handleInvoiceTableClick(event) {
         : Math.max(0, currentValue - 0.5);
 
     quantityInput.value = String(roundCurrency(nextValue));
-    updateInvoiceRowState(row);
+    const stepperIndex = Number(row.dataset.index);
+    if (Number.isInteger(stepperIndex) && state.invoiceDraft.items[stepperIndex]) {
+      state.invoiceDraft.items[stepperIndex] = {
+        ...state.invoiceDraft.items[stepperIndex],
+        quantity: roundCurrency(nextValue)
+      };
+    }
     updateInvoiceRowTotal(row);
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
@@ -3210,7 +3379,7 @@ function buildInvoiceRequestPayload(deliveryMethod = "external-app") {
     title: state.settings?.invoice?.title || "Rechnung",
     items: state.invoiceDraft.items.map((item) => ({
       ...item,
-      unit: String(item.unit || "Stunden").trim()
+      unit: String(item.unit || "").trim()
     })),
     imageDataUrl: null,
     deliveryMethod
@@ -3297,6 +3466,8 @@ async function sendInvoice() {
 
     const payload = buildInvoiceRequestPayload("external-app");
     payload.imageDataUrl = await canvasToPngDataUrl(invoiceCanvas);
+    const slices = buildPageSlices(invoiceCanvas);
+    if (slices) payload.pageSlices = slices;
 
     const response = await api("/api/invoices", {
       method: "POST",
@@ -3363,6 +3534,8 @@ async function shareInvoiceDraft() {
 
     const payload = buildInvoiceRequestPayload("share-preview");
     payload.imageDataUrl = await canvasToPngDataUrl(invoiceCanvas);
+    const slices = buildPageSlices(invoiceCanvas);
+    if (slices) payload.pageSlices = slices;
 
     const response = await api("/api/invoices/share-preview", {
       method: "POST",
@@ -3460,11 +3633,6 @@ async function prepareInvoiceForSend() {
     return;
   }
 
-  if (!state.invoiceDraft.customerId) {
-    setStatus("Bitte zuerst einen Kunden auswählen.", "error");
-    return;
-  }
-
   createInvoiceButton.disabled = true;
   createInvoiceButton.textContent = "Vorschau wird vorbereitet...";
   try {
@@ -3491,6 +3659,10 @@ async function handleAuthSubmit(event) {
     return;
   }
 
+  const originalText = authSubmit.textContent;
+  authSubmit.disabled = true;
+  authSubmit.textContent = "Anmelden…";
+
   try {
     const response = await api(
       "/api/auth/login",
@@ -3511,52 +3683,14 @@ async function handleAuthSubmit(event) {
     await bootstrap();
     return;
   } catch (error) {
+    authSubmit.disabled = false;
+    authSubmit.textContent = originalText;
     const message = error.message || "Benutzername oder Kennwort ist nicht korrekt.";
     setStatus(message, "error");
     window.alert(message);
     return;
   }
 
-  /*
-  if (username !== DEFAULT_USERNAME || password !== DEFAULT_PASSWORD) {
-    setStatus("Benutzername oder Kennwort ist nicht korrekt.", "error");
-    return;
-    setStatus("Die beiden Kennwörter stimmen nicht überein.", "error");
-    return;
-  }
-
-  window.localStorage.removeItem(STORAGE_KEYS.authUsername);
-  window.localStorage.removeItem(STORAGE_KEYS.authPasswordHash);
-  window.localStorage.setItem(STORAGE_KEYS.autoLoginUser, DEFAULT_USERNAME);
-  state.auth.hasUser = true;
-  state.auth.authenticated = true;
-  state.auth.username = DEFAULT_USERNAME;
-  authForm.reset();
-  hideAuthOverlay();
-  await bootstrap();
-  return;
-
-  const passwordHash = await hashPassword(password);
-  if (isRegister) {
-    window.localStorage.setItem(STORAGE_KEYS.authUsername, username);
-    window.localStorage.setItem(STORAGE_KEYS.authPasswordHash, passwordHash);
-  } else {
-    const storedUsername = window.localStorage.getItem(STORAGE_KEYS.authUsername) || "";
-    const storedHash = window.localStorage.getItem(STORAGE_KEYS.authPasswordHash) || "";
-    if (storedUsername !== username || storedHash !== passwordHash) {
-      setStatus("Benutzername oder Kennwort ist nicht korrekt.", "error");
-      return;
-    }
-  }
-
-  window.localStorage.setItem(STORAGE_KEYS.autoLoginUser, username);
-  state.auth.hasUser = true;
-  state.auth.authenticated = true;
-  state.auth.username = username;
-  authForm.reset();
-  hideAuthOverlay();
-  await bootstrap();
-  */
 }
 
 async function handleLogout() {
@@ -3892,13 +4026,19 @@ function bindStaticEvents() {
   invoiceItemsTable.addEventListener("change", handleInvoiceTableChange);
   invoiceItemsTable.addEventListener("click", handleInvoiceTableClick);
   addInvoiceItemButton.addEventListener("click", addInvoiceItem);
-  addInvoiceItemInPanelButton?.addEventListener("click", () => {
-    addInvoiceItem();
-    closePanelsIfMobile();
-  });
   createInvoiceButton.addEventListener("click", prepareInvoiceForSend);
   resetCustomerFormButton.addEventListener("click", resetCustomerForm);
   resetArticleFormButton.addEventListener("click", resetArticleForm);
+
+  document.getElementById("showAddCustomerFormButton")?.addEventListener("click", () => {
+    fillCustomerForm(null);
+    scrollPanelFormToTop(customerForm);
+  });
+
+  document.getElementById("showAddArticleFormButton")?.addEventListener("click", () => {
+    fillArticleForm(null);
+    scrollPanelFormToTop(articleForm);
+  });
   invoiceCustomer.addEventListener("change", handleInvoiceMetaInput);
   issueDateInput.addEventListener("input", handleInvoiceMetaInput);
   dueDateInput.addEventListener("input", handleInvoiceMetaInput);
@@ -3918,7 +4058,11 @@ async function bootstrap() {
     const adminMode = Boolean(response.isAdmin);
     await updateLoadingStep("Einstellungen werden geladen...");
     state.settings = normalizeLegacyData(response.settings);
+    state.resendConfigured = Boolean(response.resendConfigured);
     state.adminUsers = response.adminUsers || [];
+    // Nav-Benutzername aktualisieren
+    const _navUserLabel = document.getElementById("navUserLabel");
+    if (_navUserLabel) _navUserLabel.textContent = state.auth.username || "";
     state.adminExpandedUsers = [];
     if (adminMode) {
       state.customers = [];
@@ -3941,8 +4085,8 @@ async function bootstrap() {
     populateSettingsForm();
     applyRoleBasedUi();
     refreshBrandAssets();
-    fillCustomerForm(null);
-    fillArticleForm(null);
+    fillCustomerForm(null, false);
+    fillArticleForm(null, false);
     syncInvoiceMetaInputs();
     renderCustomers();
     renderArticles();

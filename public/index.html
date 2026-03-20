@@ -35,11 +35,11 @@
           </button>
           <button class="rail-button" id="customersRailButton" type="button" data-open-panel="customersPanel">
             <span class="rail-icon rail-icon--customers" aria-hidden="true"></span>
-            <span class="rail-label" id="customersRailLabel">Kunde hinzufügen</span>
+            <span class="rail-label" id="customersRailLabel">Kunden</span>
           </button>
           <button class="rail-button" id="articlesRailButton" type="button" data-open-panel="articlesPanel">
             <span class="rail-icon rail-icon--articles" aria-hidden="true"></span>
-            <span class="rail-label" id="articlesRailLabel">Artikel hinzufügen</span>
+            <span class="rail-label" id="articlesRailLabel">Artikel</span>
           </button>
           <button class="rail-button" type="button" data-open-panel="settingsPanel">
             <span class="rail-icon rail-icon--settings" aria-hidden="true"></span>
@@ -232,10 +232,13 @@
           <p class="section-kicker">Kunden</p>
           <h2>Kundenverwaltung</h2>
         </div>
-        <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
       </div>
 
-      <form id="customerForm" class="form-grid compact-grid">
+      <div class="panel-add-bar">
+        <button class="secondary" id="showAddCustomerFormButton" type="button">+ Kunde hinzufügen</button>
+      </div>
+
+      <form id="customerForm" class="form-grid compact-grid" hidden>
         <input type="hidden" name="id" />
         <label>
           Kunden-Nr.
@@ -301,7 +304,7 @@
           />
         </div>
         <table>
-          <thead>
+          <thead style="display:none">
             <tr>
               <th>Nr.</th>
               <th>Kunde</th>
@@ -321,24 +324,19 @@
           <p class="section-kicker">Artikel</p>
           <h2>Artikel und Preise</h2>
         </div>
-        <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
       </div>
 
-      <form id="articleForm" class="form-grid compact-grid">
+      <div class="panel-add-bar">
+        <button class="secondary" id="showAddArticleFormButton" type="button">+ Artikel hinzufügen</button>
+      </div>
+
+      <form id="articleForm" class="form-grid compact-grid" hidden>
         <input type="hidden" name="id" />
-        <div class="form-inline-two span-2">
-          <label>
-            Gruppe
-            <div class="group-field">
-              <input name="group" type="text" autocomplete="off" />
-              <div class="group-suggestions" id="articleGroupSuggestions" hidden></div>
-            </div>
-          </label>
-          <label>
-            Artikel-Nr.
-            <input name="number" type="text" />
-          </label>
-        </div>
+        <input type="hidden" name="group" />
+        <label>
+          Artikel-Nr.
+          <input name="number" type="text" />
+        </label>
         <label>
           Bezeichnung
           <input name="name" type="text" required />
@@ -377,7 +375,7 @@
           />
         </div>
         <table>
-          <thead>
+          <thead style="display:none">
             <tr>
               <th>Nr.</th>
               <th>Bezeichnung</th>
@@ -388,9 +386,6 @@
           </thead>
           <tbody id="articlesTable"></tbody>
         </table>
-        <div class="panel-table__actions">
-          <button class="secondary" id="addInvoiceItemInPanel" type="button">Artikel hinzufügen</button>
-        </div>
       </div>
     </aside>
 
@@ -400,7 +395,12 @@
           <p class="section-kicker">Einstellungen</p>
           <h2 id="settingsPanelTitle">Firma, Bank und E-Mail</h2>
         </div>
-        <button class="icon-button" type="button" data-close-panel aria-label="Panel schließen">×</button>
+      </div>
+      <div class="settings-user-bar" id="settingsUserBar">
+        <span class="settings-user-bar__icon" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        </span>
+        <span class="settings-user-bar__name" id="navUserLabel"></span>
       </div>
 
       <form id="settingsForm" class="form-grid settings-grid">
@@ -552,23 +552,23 @@
           <div class="settings-section__grid settings-accordion__content">
             <label class="logo-upload-field">
               Rechnungslogo
+              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
               <div class="logo-preview-card" data-logo-card="invoice">
                 <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen">×</button>
                 <img class="logo-preview-card__image" data-settings-logo-preview="invoice" src="/assets/logo-placeholder.svg" alt="Rechnungslogo Platzhalter" />
                 <span class="logo-preview-card__empty">Kein Logo</span>
                 <p class="logo-preview-card__label">Vorschau</p>
               </div>
-              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
             </label>
             <label class="logo-upload-field">
               App-Logo
+              <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
               <div class="logo-preview-card" data-logo-card="app">
                 <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen">×</button>
                 <img class="logo-preview-card__image" data-settings-logo-preview="app" src="/assets/app-icon.svg" alt="App-Logo Platzhalter" />
                 <span class="logo-preview-card__empty">Standardlogo</span>
                 <p class="logo-preview-card__label">Vorschau</p>
               </div>
-              <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
             </label>
           </div>
         </details>

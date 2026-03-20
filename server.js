@@ -472,6 +472,9 @@ function markUserSeen(user) {
 }
 
 function hashPassword(password) {
+  // SHA-256 für Kompatibilität mit bestehenden Hashes beibehalten.
+  // Für neue Deployments wäre scrypt/bcrypt besser – hier nicht geändert
+  // um bestehende Logins nicht zu brechen.
   return crypto.createHash("sha256").update(String(password || "")).digest("hex");
 }
 
@@ -701,7 +704,9 @@ async function readStore() {
 
 async function writeStore(store) {
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
-  await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8");
+  const tmp = DATA_FILE + ".tmp";
+  await fs.writeFile(tmp, JSON.stringify(store, null, 2), "utf8");
+  await fs.rename(tmp, DATA_FILE);
 }
 
 function sanitizeSettings(settings) {
@@ -799,7 +804,7 @@ function sanitizeArticle(input = {}) {
     number: String(normalizedInput.number || "").trim(),
     name: String(normalizedInput.name || "").trim(),
     description: String(normalizedInput.description || "").trim(),
-    unit: String(normalizedInput.unit || "Stunden").trim(),
+    unit: String(normalizedInput.unit ?? "").trim(),
     unitPrice: roundCurrency(normalizedInput.unitPrice || 0),
     taxRate: Number(normalizedInput.taxRate ?? 20)
   };
@@ -1289,7 +1294,7 @@ function sanitizeItem(input = {}) {
     articleId: String(normalizedInput.articleId || ""),
     articleNumber: String(normalizedInput.articleNumber || "").trim(),
     description: String(normalizedInput.description || "").trim(),
-    unit: String(normalizedInput.unit || "Stunden").trim(),
+    unit: String(normalizedInput.unit ?? "").trim(),
     quantity: roundCurrency(quantity),
     unitPrice,
     discount: roundCurrency(discount),
@@ -1333,16 +1338,27 @@ function findUserBySession(store, token) {
   if (!session) {
     return { session: null, user: null };
   }
-
+  // Abgelaufene Session ablehnen (Altdaten ohne expiresAt gelten als gültig)
+  if (session.expiresAt && new Date(session.expiresAt).getTime() < Date.now()) {
+    return { session: null, user: null };
+  }
   const user = store.users.find((entry) => entry.id === session.userId) || null;
   return { session, user };
 }
 
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 Tage
+
 function createSession(store, userId) {
+  const now = Date.now();
+  // Abgelaufene Sessions bereinigen
+  store.sessions = store.sessions.filter(
+    (s) => s.expiresAt && new Date(s.expiresAt).getTime() > now
+  );
   const session = {
     token: crypto.randomUUID(),
     userId,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(now + SESSION_TTL_MS).toISOString()
   };
   store.sessions.push(session);
   return session;
@@ -1588,7 +1604,7 @@ function serializeInvoiceForClient(invoice, token) {
   };
 }
 
-async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
+async function createInvoiceFiles(user, invoiceNumber, imageDataUrl, pageSlices = null) {
   if (!imageDataUrl?.startsWith("data:image/png;base64,")) {
     throw new Error("Rechnungsvorschau konnte nicht als PNG übergeben werden.");
   }
@@ -1596,25 +1612,47 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl) {
   const baseName = `${user.id}_${invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_");
   const pngName = `${baseName}.png`;
   const pdfName = `${baseName}.pdf`;
-  const pngKey = `generated/${pngName}`;
-  const pdfKey = `generated/${pdfName}`;
   const pngBase64 = String(imageDataUrl).split(",")[1] || "";
   const pngBuffer = Buffer.from(pngBase64, "base64");
   if (!pngBuffer.length) {
     throw new Error("PNG-Daten der Rechnung sind leer.");
   }
 
+  const A4_WIDTH = 595.28;
+  const A4_HEIGHT = 841.89;
+
   const pdfBuffer = await withRetry(async () => {
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]);
-    const image = await pdfDoc.embedPng(pngBuffer);
-    const dimensions = image.scaleToFit(page.getWidth(), page.getHeight());
-    page.drawImage(image, {
-      x: (page.getWidth() - dimensions.width) / 2,
-      y: (page.getHeight() - dimensions.height) / 2,
-      width: dimensions.width,
-      height: dimensions.height
-    });
+
+    // Mehrseitig: pageSlices enthält pro Seite ein eigenes PNG
+    if (Array.isArray(pageSlices) && pageSlices.length > 1) {
+      for (const sliceDataUrl of pageSlices) {
+        if (!String(sliceDataUrl || "").startsWith("data:image/png;base64,")) continue;
+        const sliceBase64 = String(sliceDataUrl).split(",")[1] || "";
+        const sliceBuffer = Buffer.from(sliceBase64, "base64");
+        if (!sliceBuffer.length) continue;
+        const page = pdfDoc.addPage([A4_WIDTH, A4_HEIGHT]);
+        const img = await pdfDoc.embedPng(sliceBuffer);
+        const dims = img.scaleToFit(A4_WIDTH, A4_HEIGHT);
+        page.drawImage(img, {
+          x: (A4_WIDTH - dims.width) / 2,
+          y: A4_HEIGHT - dims.height, // oben ausrichten
+          width: dims.width,
+          height: dims.height
+        });
+      }
+    } else {
+      // Einzelseite
+      const page = pdfDoc.addPage([A4_WIDTH, A4_HEIGHT]);
+      const image = await pdfDoc.embedPng(pngBuffer);
+      const dimensions = image.scaleToFit(A4_WIDTH, A4_HEIGHT);
+      page.drawImage(image, {
+        x: (A4_WIDTH - dimensions.width) / 2,
+        y: A4_HEIGHT - dimensions.height,
+        width: dimensions.width,
+        height: dimensions.height
+      });
+    }
 
     const pdfBytes = await pdfDoc.save();
     const builtPdfBuffer = Buffer.from(pdfBytes);
@@ -1920,6 +1958,7 @@ app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
       customers: isAdmin ? [] : req.user.customers,
       articles: isAdmin ? [] : req.user.articles,
       adminUsers,
+      resendConfigured: isResendConfigured(getResendSettings(req.user.settings)),
       invoices: [...(isAdmin ? [] : req.user.invoices)]
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((invoice) => serializeInvoiceForClient(invoice, req.session.token))
@@ -2377,7 +2416,7 @@ app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
 app.post("/api/invoices", requireAuth, async (req, res, next) => {
   try {
     const invoice = buildInvoiceRecord(req.user, req.body || {});
-    const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl);
+    const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl, req.body?.pageSlices ?? null);
     invoice.files = sanitizeStoredFileInfo(fileInfo);
 
     const deliveryMethod = String(req.body?.deliveryMethod || "").trim();
@@ -2421,7 +2460,7 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
 app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
   try {
     const invoice = buildInvoiceRecord(req.user, req.body || {});
-    const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl);
+    const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl, req.body?.pageSlices ?? null);
     invoice.files = sanitizeStoredFileInfo(fileInfo);
     invoice.email = {
       status: "share-preview",

@@ -8,9 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="RechnungsApp" />
     <title>RechnungsApp</title>
-    <link id="appFavicon" rel="icon" href="/api/assets/logo/app" type="image/png" />
-    <link id="appleTouchIcon" rel="apple-touch-icon" href="/api/assets/logo/app" />
-    <link id="appManifest" rel="manifest" href="/api/manifest.webmanifest" />
+    <link id="appFavicon" rel="icon" href="/assets/app-icon.svg" type="image/svg+xml" />
+    <link id="appleTouchIcon" rel="apple-touch-icon" href="/assets/app-icon.svg" />
+    <link id="appManifest" rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -53,7 +53,7 @@
             <span class="rail-icon rail-icon--logout" aria-hidden="true"></span>
             <span class="rail-label">Abmelden</span>
           </button>
-          <div class="app-version" id="appVersion">V1.0.14</div>
+          <div class="app-version" id="appVersion">V1.1.0</div>
         </div>
       </aside>
 
@@ -195,7 +195,7 @@
         <p class="section-kicker" id="authModeKicker">Anmeldung</p>
         <h2 id="authTitle">Anmelden</h2>
         <p class="panel-note" id="authText">Mit einem vorhandenen Benutzer anmelden.</p>
-        <p class="panel-note auth-version">Version <span id="authVersion">V1.0.14</span></p>
+        <p class="panel-note auth-version">Version <span id="authVersion">V1.1.0</span></p>
         <form id="authForm" class="form-grid auth-grid">
           <label>
             Benutzername
@@ -364,7 +364,7 @@
           </label>
         </div>
         <label class="span-2">
-          Beschreibung
+          Beschreibung (optionaler Text unter Bezeichnung)
           <textarea name="description" rows="3"></textarea>
         </label>
         <div class="actions span-2 panel-form-actions">
@@ -533,6 +533,14 @@
               Fußzeile
               <textarea name="footerNote" rows="3"></textarea>
             </label>
+            <label class="span-2 logo-upload-field">
+              Rechnungslogo
+              <div class="logo-upload-row" data-logo-card="invoice">
+                <img class="logo-inline-preview" data-settings-logo-preview="invoice" src="" alt="" hidden />
+                <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen" hidden>Entfernen</button>
+              </div>
+              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
+            </label>
           </div>
         </details>
 
@@ -555,32 +563,10 @@
           </div>
         </details>
 
-        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="logos">
-          <summary class="settings-accordion__summary">Logos</summary>
-          <div class="settings-section__grid settings-accordion__content">
-            <label class="logo-upload-field">
-              Rechnungslogo
-              <div class="logo-upload-row" data-logo-card="invoice">
-                <img class="logo-inline-preview" data-settings-logo-preview="invoice" src="" alt="" hidden />
-                <button class="logo-remove-button" id="removeInvoiceLogo" type="button" aria-label="Rechnungslogo entfernen" hidden>Entfernen</button>
-              </div>
-              <input id="invoiceLogoFile" name="invoiceLogoFile" type="file" accept="image/*" />
-            </label>
-            <label class="logo-upload-field">
-              App-Logo
-              <div class="logo-upload-row" data-logo-card="app">
-                <img class="logo-inline-preview" data-settings-logo-preview="app" src="" alt="" hidden />
-                <button class="logo-remove-button" id="removeAppLogo" type="button" aria-label="App-Logo entfernen" hidden>Entfernen</button>
-              </div>
-              <input id="appLogoFile" name="appLogoFile" type="file" accept="image/*" />
-            </label>
-          </div>
-        </details>
-
         <div class="actions span-2 panel-form-actions">
           <button class="primary" id="saveSettingsButton" type="submit" hidden>Einstellungen speichern</button>
         </div>
-        <div class="settings-version span-2">Version <span id="settingsVersion">V1.0.14</span></div>
+          <div class="settings-version span-2">Version <span id="settingsVersion">V1.1.0</span></div>
       </form>
     </aside>
 
@@ -594,9 +580,7 @@
           <button class="icon-button" id="closeSendDialog" type="button" aria-label="Dialog schließen">×</button>
         </div>
 
-        <div class="dialog-preview">
-          <canvas id="sendPreviewCanvas" width="794" height="1123"></canvas>
-        </div>
+        <div class="dialog-preview" id="sendPreviewPages"></div>
 
         <div class="actions dialog-actions">
           <button class="secondary action-with-icon action-with-icon--signature" id="openSignatureDialog" type="button">
@@ -615,7 +599,7 @@
         <div class="side-panel__head">
           <div>
             <p class="section-kicker">Unterschrift</p>
-            <h2>Kunde unterschreibt</h2>
+            <h2>Unterschrift</h2>
           </div>
           <button class="icon-button" id="closeSignatureDialog" type="button" aria-label="Dialog schließen">×</button>
         </div>
@@ -697,5 +681,3 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
-
-

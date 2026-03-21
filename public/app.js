@@ -1,4 +1,4 @@
-const APP_VERSION = "V1.0.14";
+﻿const APP_VERSION = "V1.1.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -84,6 +84,22 @@ function normalizeLegacyText(value) {
   }
 
   normalized = normalized
+    .replaceAll("Ã¼", "ü")
+    .replaceAll("Ãœ", "Ü")
+    .replaceAll("Ã¶", "ö")
+    .replaceAll("Ã–", "Ö")
+    .replaceAll("Ã¤", "ä")
+    .replaceAll("Ã„", "Ä")
+    .replaceAll("ÃŸ", "ß")
+    .replaceAll("â€¦", "…")
+    .replaceAll("â€“", "–")
+    .replaceAll("â€”", "—")
+    .replaceAll("â†’", "→")
+    .replaceAll("â‚¬", "€")
+    .replaceAll("Ã—", "×")
+    .replaceAll("â€ž", "„")
+    .replaceAll("â€œ", "“")
+    .replaceAll("â€", "”")
     .replaceAll("\uFFFDsterreich", "\u00D6sterreich")
     .replaceAll("\uFFFDberweisung", "\u00DCberweisung")
     .replaceAll("Gr\uFFFD\uFFFDe", "Gr\u00FC\u00DFe")
@@ -126,6 +142,7 @@ const appVersion = document.getElementById("appVersion");
 const settingsVersion = document.getElementById("settingsVersion");
 const authVersion = document.getElementById("authVersion");
 const saveSettingsButton = document.getElementById("saveSettingsButton");
+const saveSettingsActions = saveSettingsButton?.closest(".panel-form-actions") || null;
 const settingsPanelTitle = document.getElementById("settingsPanelTitle");
 const templateHint = document.getElementById("templateHint");
 const mainInvoiceArea = document.getElementById("mainInvoiceArea");
@@ -198,8 +215,7 @@ const closeSendDialogButton = document.getElementById("closeSendDialog");
 const openSignatureDialogButton = document.getElementById("openSignatureDialog");
 const sendInvoiceButton = document.getElementById("sendInvoiceButton");
 const shareInvoiceButton = document.getElementById("shareInvoiceButton");
-const sendPreviewCanvas = document.getElementById("sendPreviewCanvas");
-const sendPreviewContext = sendPreviewCanvas.getContext("2d");
+const sendPreviewPages = document.getElementById("sendPreviewPages");
 const sendDialogCard = sendDialog.querySelector(".dialog-card");
 const sendPreviewArea = sendDialog.querySelector(".dialog-preview");
 const signatureDialog = document.getElementById("signatureDialog");
@@ -385,7 +401,7 @@ function roundCurrency(value) {
   return Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
 }
 
-// Singleton-Formatter für Performance (keine Neuinstanziierung pro Aufruf)
+// Singleton formatter for performance (avoid recreating on every call)
 const FMT_CURRENCY = new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" });
 const FMT_AMOUNT   = new Intl.NumberFormat("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const FMT_TIME     = new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit" });
@@ -753,7 +769,7 @@ function openPanel(panelId) {
     return;
   }
 
-  // Formulare beim Panelwechsel zurücksetzen
+  // Formulare beim Panelwechsel zuruecksetzen
   if (state.openPanelId !== panelId) {
     if (customerForm && !customerForm.hidden) {
       customerForm.hidden = true;
@@ -776,7 +792,7 @@ function openPanel(panelId) {
 }
 
 function closePanels() {
-  // Formulare beim Schließen verstecken
+  // Formulare beim Schliessen verstecken
   if (customerForm) customerForm.hidden = true;
   if (articleForm) articleForm.hidden = true;
 
@@ -1032,12 +1048,48 @@ function signaturePointFromEvent(event) {
 }
 
 function refreshSendPreview() {
-  // Höhe an invoiceCanvas anpassen (mehrseitig)
-  if (sendPreviewCanvas.height !== invoiceCanvas.height) {
-    sendPreviewCanvas.height = invoiceCanvas.height;
+  if (!sendPreviewPages) {
+    return;
   }
-  sendPreviewContext.clearRect(0, 0, sendPreviewCanvas.width, sendPreviewCanvas.height);
-  sendPreviewContext.drawImage(invoiceCanvas, 0, 0, sendPreviewCanvas.width, sendPreviewCanvas.height);
+
+  const pageHeight = 1123;
+  const pageCount = Math.max(1, Math.ceil(invoiceCanvas.height / pageHeight));
+  sendPreviewPages.innerHTML = "";
+
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    const sliceY = pageIndex * pageHeight;
+    const sliceHeight = Math.min(pageHeight, invoiceCanvas.height - sliceY);
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = invoiceCanvas.width;
+    pageCanvas.height = pageHeight;
+    pageCanvas.className = "send-preview-page__canvas";
+
+    const pageContext = pageCanvas.getContext("2d");
+    pageContext.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+    pageContext.fillStyle = "#ffffff";
+    pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    pageContext.drawImage(
+      invoiceCanvas,
+      0,
+      sliceY,
+      invoiceCanvas.width,
+      sliceHeight,
+      0,
+      0,
+      pageCanvas.width,
+      sliceHeight
+    );
+
+    const pageCard = document.createElement("section");
+    pageCard.className = "send-preview-page";
+
+    const pageLabel = document.createElement("p");
+    pageLabel.className = "send-preview-page__label";
+    pageLabel.textContent = `Seite ${pageIndex + 1}${pageCount > 1 ? ` / ${pageCount}` : ""}`;
+
+    pageCard.append(pageLabel, pageCanvas);
+    sendPreviewPages.append(pageCard);
+  }
 }
 
 async function loadTemplate() {
@@ -1048,7 +1100,7 @@ async function loadTemplate() {
   const candidates = ["/assets/invoice-template.png", "/assets/image.png", "/assets/template.png"];
   for (const candidate of candidates) {
     try {
-      // Kein Date.now()-Cache-Busting hier – Template ändert sich nicht im Betrieb
+      // Kein Date.now()-Cache-Busting hier - Template aendert sich nicht im Betrieb
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -1060,7 +1112,7 @@ async function loadTemplate() {
       templateHint.textContent = `Vorlage geladen: ${candidate}`;
       return templateState.image;
     } catch {
-      // Nächste Datei versuchen.
+      // Naechste Datei versuchen.
     }
   }
 
@@ -1262,6 +1314,9 @@ function updateSettingsSaveButtonVisibility() {
   const hasChanged = current !== saved;
   saveSettingsButton.hidden = !hasChanged;
   saveSettingsButton.disabled = !hasChanged;
+  if (saveSettingsActions) {
+    saveSettingsActions.hidden = !hasChanged;
+  }
 }
 
 function parseEmailList(value) {
@@ -1332,6 +1387,33 @@ function scrollMainContentToTop() {
   document.querySelector(".main-card")?.scrollTo?.({ top: 0, behavior: "smooth" });
 }
 
+function keepSettingsAccordionInView(detailsElement) {
+  if (!detailsElement?.open) {
+    return;
+  }
+
+  const panel = detailsElement.closest(".side-panel");
+  if (!panel) {
+    return;
+  }
+
+  const panelRect = panel.getBoundingClientRect();
+  const detailsRect = detailsElement.getBoundingClientRect();
+  const stickyHeader = panel.querySelector(".side-panel__head");
+  const stickyHeaderHeight = stickyHeader ? stickyHeader.getBoundingClientRect().height : 0;
+  const visibleTop = panelRect.top + stickyHeaderHeight + 12;
+  const visibleBottom = panelRect.bottom - 18;
+
+  if (detailsRect.top < visibleTop) {
+    panel.scrollTop += detailsRect.top - visibleTop;
+    return;
+  }
+
+  if (detailsRect.bottom > visibleBottom) {
+    panel.scrollTop += detailsRect.bottom - visibleBottom;
+  }
+}
+
 function updateSettingsAuthPasswordToggleLabel() {
   if (!toggleSettingsAuthPasswordButton || !settingsAuthPasswordInput) {
     return;
@@ -1394,8 +1476,8 @@ function updatePasswordDialogValidation() {
   updatePasswordToggleButton(
     togglePasswordDialogConfirmButton,
     passwordDialogConfirmInput,
-    "Kennwort bestätigen anzeigen",
-    "Kennwort bestätigen verbergen"
+    "Kennwort best\u00E4tigen anzeigen",
+    "Kennwort best\u00E4tigen verbergen"
   );
 }
 
@@ -1435,7 +1517,7 @@ function refreshBrandAssets() {
   if (appFavicon) { appFavicon.href = appPreviewUrl; }
   if (appleTouchIcon) { appleTouchIcon.href = appPreviewUrl; }
 
-  // Manifest mit Cache-Busting → PWA-Icon auf Smartphone aktualisieren
+  // Manifest mit Cache-Busting -> PWA-Icon auf Smartphone aktualisieren
   if (appManifest) {
     const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
     const manifestUrl = new URL("/api/manifest.webmanifest", window.location.origin);
@@ -1470,7 +1552,7 @@ function fileToPngDataUrl(file) {
       const context = canvas.getContext("2d");
       if (!context) {
         URL.revokeObjectURL(imageUrl);
-        reject(new Error("Rechnungsansicht ist nicht verfügbar."));
+        reject(new Error("Rechnungsansicht ist nicht verf\u00FCgbar."));
         return;
       }
 
@@ -1492,7 +1574,7 @@ function fileToPngDataUrl(file) {
 function canvasToPngDataUrl(canvas) {
   return new Promise((resolve, reject) => {
     if (!canvas) {
-      reject(new Error("Rechnungsansicht ist nicht verfügbar."));
+      reject(new Error("Rechnungsansicht ist nicht verf\u00FCgbar."));
       return;
     }
 
@@ -1531,12 +1613,12 @@ function canvasToPngDataUrl(canvas) {
   });
 }
 
-// Erstellt pro Canvas-Seite (je 1123px) ein eigenes PNG für mehrseitige PDFs
+// Create one PNG per canvas page for multi-page PDFs.
 function buildPageSlices(canvas) {
   const PAGE_H = 1123;
   const totalHeight = canvas.height;
   if (totalHeight <= PAGE_H) {
-    return null; // Einzelseite – kein Slicing nötig
+    return null; // Einzelseite - kein Slicing noetig
   }
   const numPages = Math.ceil(totalHeight / PAGE_H);
   const slices = [];
@@ -1918,7 +2000,7 @@ function updateInvoiceTotalsDisplay() {
 }
 
 function renderCustomerOptions() {
-  const options = ['<option value="">Kunde auswählen</option>'];
+  const options = ['<option value="">Kunde ausw\u00E4hlen</option>'];
   for (const customer of sortByNumericField(state.customers, "customerNumber")) {
     const customerName = getCustomerDisplayName(customer) || "Ohne Namen";
     options.push(
@@ -1969,7 +2051,7 @@ function renderCustomers() {
             <div class="customer-card">
               <div class="customer-card__head">
                 <strong class="customer-card__name">${escapeHtml(displayName)}</strong>
-                <span class="customer-card__number">Nr. ${escapeHtml(customer.customerNumber || "–")}</span>
+                <span class="customer-card__number">Nr. ${escapeHtml(customer.customerNumber || "\u2013")}</span>
               </div>
               ${customer.name && customer.contactPerson ? `<p class="customer-card__line">${escapeHtml(customer.contactPerson)}</p>` : ""}
               ${location ? `<p class="customer-card__line">${escapeHtml(location)}</p>` : ""}
@@ -1977,7 +2059,7 @@ function renderCustomers() {
               ${customer.phone ? `<p class="customer-card__line">${escapeHtml(customer.phone)}</p>` : ""}
               <div class="customer-card__actions">
                 <button class="secondary" type="button" data-action="edit-customer" data-id="${escapeHtml(customer.id)}">Bearbeiten</button>
-                <button class="danger" type="button" data-action="delete-customer" data-id="${escapeHtml(customer.id)}">Löschen</button>
+                <button class="danger" type="button" data-action="delete-customer" data-id="${escapeHtml(customer.id)}">L\u00F6schen</button>
               </div>
             </div>
           </td>
@@ -2006,7 +2088,7 @@ function renderArticles() {
       const meta = [
         article.unit ? `Einheit: ${article.unit}` : "",
         article.taxRate != null ? `MwSt.: ${article.taxRate} %` : ""
-      ].filter(Boolean).join(" · ");
+      ].filter(Boolean).join(" Â· ");
       return `
         <tr>
           <td colspan="5" style="padding: 4px 0; border: none;">
@@ -2020,7 +2102,7 @@ function renderArticles() {
               ${meta ? `<p class="customer-card__line" style="font-size:0.8rem">${escapeHtml(meta)}</p>` : ""}
               <div class="customer-card__actions">
                 <button class="secondary" type="button" data-action="edit-article" data-id="${escapeHtml(article.id)}">Bearbeiten</button>
-                <button class="danger" type="button" data-action="delete-article" data-id="${escapeHtml(article.id)}">Löschen</button>
+                <button class="danger" type="button" data-action="delete-article" data-id="${escapeHtml(article.id)}">L\u00F6schen</button>
               </div>
             </div>
           </td>
@@ -2083,8 +2165,8 @@ function renderAdminUsers() {
               user.username === "admin"
                 ? '<div class="muted-note">Passwort über Einstellungen ändern</div>'
                 : `<div class="row-actions">
-                    <button class="danger" type="button" data-reset-user-password="${escapeHtml(user.username)}">Passwort zurücksetzen</button>
-                    <button class="danger ghost-danger" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer löschen</button>
+                    <button class="danger" type="button" data-reset-user-password="${escapeHtml(user.username)}">Passwort zur\u00FCcksetzen</button>
+                    <button class="danger ghost-danger" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer l\u00F6schen</button>
                   </div>`
             }
           </td>
@@ -2109,7 +2191,7 @@ function toggleAdminUserExpanded(username) {
 }
 
 function buildArticleOptions(selectedId) {
-  const options = ['<option value="">Artikel auswählen</option>'];
+  const options = ['<option value="">Artikel ausw\u00E4hlen</option>'];
   for (const article of sortByNumericField(state.articles, "number")) {
     options.push(
       `<option value="${escapeHtml(article.id)}"${
@@ -2173,7 +2255,7 @@ function renderInvoiceItems() {
                   aria-label="Artikel entfernen"
                   title="Artikel entfernen"
                 >
-                  ×
+                  &times;
                 </button>
               </div>
               <div class="invoice-item-meta">
@@ -2365,7 +2447,7 @@ function renderInvoiceHistory() {
       else if (emailStatus === "external-app") { badgeClass = "status-badge status-badge--info"; badgeLabel = "Mail-App"; }
       else if (emailStatus === "share-preview") { badgeClass = "status-badge status-badge--info"; badgeLabel = "Geteilt"; }
       else if (emailStatus === "failed") { badgeClass = "status-badge status-badge--error"; badgeLabel = "Fehlgeschlagen"; }
-      else if (emailStatus === "skipped") { badgeClass = "status-badge status-badge--neutral"; badgeLabel = "Übersprungen"; }
+      else if (emailStatus === "skipped") { badgeClass = "status-badge status-badge--neutral"; badgeLabel = "\u00DCbersprungen"; }
 
       return `
         <article class="history-item">
@@ -2437,21 +2519,6 @@ function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = I
 function drawFallbackLayout(context, headerShift = 0) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, invoiceCanvas.width, invoiceCanvas.height);
-  context.strokeStyle = "#222222";
-  context.lineWidth = 1.2;
-  context.beginPath();
-  context.moveTo(62, 980);
-  context.lineTo(734, 980);
-  context.stroke();
-  context.fillStyle = "#f5f5f5";
-  context.strokeStyle = "#c9c9c9";
-  context.lineWidth = 1;
-  context.beginPath();
-  context.roundRect(438, 162 + headerShift, 280, 150, 6);
-  context.fill();
-  context.stroke();
-  context.fillStyle = "#d5d5d5";
-  context.fillRect(64, 392 + headerShift, 674, 22);
 }
 
 function getPreviewTaxLabel() {
@@ -2479,6 +2546,8 @@ async function renderCanvas() {
   const PAGE_HEIGHT = 1123;
   const PAGE_WIDTH = 794;
   const headerShift = logo ? 0 : -58;
+  const FOOTER_LINE_Y = PAGE_HEIGHT - 76;
+  const FOOTER_TEXT_Y = PAGE_HEIGHT - 60;
 
   const customer = selectedCustomer();
   const totals = calculateDraftTotals();
@@ -2489,9 +2558,13 @@ async function renderCanvas() {
 
   // --- Berechne wie viele Seiten benötigt werden ---
   const ITEMS_START_Y = 430 + headerShift;
-  const FIRST_PAGE_ITEMS_END = PAGE_HEIGHT - 220; // Platz für Summen
+  const LAST_PAGE_RESERVED_HEIGHT =
+    430
+    + (business.footerNote ? 36 : 0)
+    + (state.invoiceDraft.notes ? 18 : 0);
+  const FIRST_PAGE_ITEMS_END = PAGE_HEIGHT - LAST_PAGE_RESERVED_HEIGHT; // Platz für Summen und Fußzeile
   const CONT_PAGE_ITEMS_START = 160;
-  const CONT_PAGE_ITEMS_END = PAGE_HEIGHT - 220;
+  const CONT_PAGE_ITEMS_END = PAGE_HEIGHT - LAST_PAGE_RESERVED_HEIGHT;
 
   let neededPages = 1;
   let testY = ITEMS_START_Y;
@@ -2507,7 +2580,7 @@ async function renderCanvas() {
     testY += rowH;
   });
 
-  // Canvas-Höhe anpassen
+  // Canvas-Hoehe anpassen
   const totalHeight = PAGE_HEIGHT * neededPages;
   if (invoiceCanvas.height !== totalHeight) {
     invoiceCanvas.height = totalHeight;
@@ -2534,105 +2607,168 @@ async function renderCanvas() {
 
   canvasContext.fillStyle = "#111111";
   canvasContext.textBaseline = "top";
-  canvasContext.font = '14px Calibri, Candara, "Segoe UI", sans-serif';
-  const addressLines = [
+
+  const senderLineParts = [
     business.companyName,
     business.addressLine1,
     business.addressLine2,
-    [business.postalCode, business.city].filter(Boolean).join(" ").trim(),
-    business.country
+    [business.postalCode, business.city].filter(Boolean).join(" ").trim()
   ].filter(Boolean);
-  addressLines.forEach((line, index) => {
-    canvasContext.fillText(line, 66, 190 + headerShift + index * 20);
-  });
+  const senderLine = senderLineParts.length ? `Abs.: ${senderLineParts.join(" • ")}` : "";
+  const senderLineY = logo ? 136 : 24;
 
-  canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
-  canvasContext.fillText("Kundeninfo", 446, 180 + headerShift);
-  canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+  canvasContext.font = '12px Calibri, Candara, "Segoe UI", sans-serif';
+  if (senderLine) {
+    canvasContext.fillText(senderLine, 34, senderLineY);
+    canvasContext.beginPath();
+    canvasContext.moveTo(34, senderLineY + 16);
+    canvasContext.lineTo(332, senderLineY + 16);
+    canvasContext.strokeStyle = "#8a8a8a";
+    canvasContext.lineWidth = 0.9;
+    canvasContext.stroke();
+  }
+
+  const customerAddressName = customer ? getCustomerDisplayName(customer) : "";
+  const customerAddressLines = customer
+    ? [
+        customerAddressName,
+        customer.street || "",
+        [customer.postalCode, customer.city].filter(Boolean).join(" ").trim(),
+        customer.country || ""
+      ].filter(Boolean)
+    : [];
+  const customerAddressStartY = senderLine ? senderLineY + 34 : (logo ? 136 : 46);
+
+  canvasContext.font = '14px Calibri, Candara, "Segoe UI", sans-serif';
+  customerAddressLines.forEach((line, index) => {
+    canvasContext.fillText(line, 34, customerAddressStartY + index * 20);
+  });
+  const customerAddressBottom = customerAddressLines.length
+    ? customerAddressStartY + (customerAddressLines.length - 1) * 20 + 18
+    : customerAddressStartY;
+
   const customerInfoLines = customer
     ? [
-        customer.name,
         `Kunden-Nr.:   ${customer.customerNumber || "-"}`,
         customer.phone ? `Telefon:      ${customer.phone}` : "",
         customer.email ? `E-Mail:       ${customer.email}` : "",
         customer.uid ? `UID-Nr.:      ${customer.uid}` : ""
       ].filter(Boolean)
-    : ["Bitte Kunde auswählen"];
+    : ["Bitte Kunde ausw\u00E4hlen"];
+
+  const customerInfoBoxY = customerAddressStartY - 8;
+  const customerInfoBoxHeight = 38 + customerInfoLines.length * 18 + 20;
+
+  canvasContext.fillStyle = "#f1f1f1";
+  canvasContext.strokeStyle = "#cfcfcf";
+  canvasContext.lineWidth = 1;
+  canvasContext.beginPath();
+  canvasContext.roundRect(438, customerInfoBoxY, 322, customerInfoBoxHeight, 6);
+  canvasContext.fill();
+  canvasContext.stroke();
+
+  canvasContext.fillStyle = "#111111";
+  canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
+  canvasContext.fillText("Kundeninfo", 446, customerInfoBoxY + 18);
+  canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   customerInfoLines.forEach((line, index) => {
-    canvasContext.fillText(line, 446, 212 + headerShift + index * 22);
+    canvasContext.fillText(line, 446, customerInfoBoxY + 48 + index * 18);
   });
 
+  const infoBlocksBottom = Math.max(customerAddressBottom, customerInfoBoxY + customerInfoBoxHeight);
+  const firstPageTableOffset = Math.max(404 + headerShift, infoBlocksBottom + 44);
+  const invoiceHeaderTop = firstPageTableOffset - (state.invoiceDraft.reference ? 62 : 36);
+
+  canvasContext.fillStyle = "#111111";
   canvasContext.font = 'bold 18px Calibri, Candara, "Segoe UI", sans-serif';
-  canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, 345 + headerShift);
+  canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, invoiceHeaderTop);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   if (state.invoiceDraft.reference) {
-    canvasContext.fillText(`zu Bst.: ${state.invoiceDraft.reference}`, 66, 373 + headerShift);
+    canvasContext.fillText(`zu Bst.: ${state.invoiceDraft.reference}`, 66, invoiceHeaderTop + 28);
   }
   canvasContext.textAlign = "right";
-  canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, 345 + headerShift);
-  canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, 369 + headerShift);
+  canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, invoiceHeaderTop);
+  canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, invoiceHeaderTop + 24);
   canvasContext.textAlign = "left";
+
+  const invoiceMetaBottom = state.invoiceDraft.reference ? invoiceHeaderTop + 42 : invoiceHeaderTop + 18;
 
   // --- Tabellenkopf Seite 1 ---
   const drawTableHeader = (pageOffsetY) => {
     const tableTop = pageOffsetY + 30;
+    canvasContext.fillStyle = "#e1e1e1";
+    canvasContext.fillRect(66, tableTop - 10, 672, 30);
+    canvasContext.strokeStyle = "#c8c8c8";
+    canvasContext.lineWidth = 0.8;
+    canvasContext.strokeRect(66, tableTop - 10, 672, 30);
     canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.textBaseline = "middle";
     canvasContext.fillStyle = "#111111";
-    canvasContext.fillText("Pos", 68, tableTop);
-    canvasContext.fillText("Beschreibung", 98, tableTop);
+    const headerCenterY = tableTop + 5;
+    canvasContext.fillText("Pos", 78, headerCenterY);
+    canvasContext.fillText("Beschreibung", 128, headerCenterY);
     canvasContext.textAlign = "right";
-    canvasContext.fillText("Einzelpreis €", 536, tableTop);
-    canvasContext.fillText("Menge", 644, tableTop);
-    canvasContext.fillText("Summe €", 710, tableTop);
+    canvasContext.fillText("Einzelpreis \u20AC", 560, headerCenterY);
+    canvasContext.fillText("Menge", 650, headerCenterY);
+    canvasContext.fillText("Summe \u20AC", 724, headerCenterY);
     canvasContext.textAlign = "left";
     canvasContext.textBaseline = "top";
-    // Trennlinie unter Header
     canvasContext.strokeStyle = "#cccccc";
     canvasContext.lineWidth = 0.8;
     canvasContext.beginPath();
-    canvasContext.moveTo(66, tableTop + 14);
-    canvasContext.lineTo(738, tableTop + 14);
+    canvasContext.moveTo(66, tableTop + 20);
+    canvasContext.lineTo(738, tableTop + 20);
     canvasContext.stroke();
-    return tableTop + 26;
+    return tableTop + 32;
   };
 
   const drawContinuationHeader = (pageIndex) => {
     const offsetY = pageIndex * PAGE_HEIGHT;
-    // Hintergrundrectangle
-    canvasContext.fillStyle = "#f5f5f5";
-    canvasContext.fillRect(0, offsetY, PAGE_WIDTH, 130);
     canvasContext.fillStyle = "#111111";
-    canvasContext.font = 'bold 13px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.font = 'bold 18px Calibri, Candara, "Segoe UI", sans-serif';
     canvasContext.textBaseline = "top";
-    canvasContext.fillText(`${invoiceTitle} ${invoiceNumber} – Seite ${pageIndex + 1} von ${neededPages}`, 66, offsetY + 16);
-    canvasContext.font = '12px Calibri, Candara, "Segoe UI", sans-serif';
-    canvasContext.fillStyle = "#444444";
-    canvasContext.fillText(
-      `Kunde: ${customer ? customer.name : "-"}  |  Datum: ${formatDate(state.invoiceDraft.issueDate)}`,
-      66, offsetY + 36
-    );
-    canvasContext.strokeStyle = "#cccccc";
-    canvasContext.lineWidth = 1;
-    canvasContext.beginPath();
-    canvasContext.moveTo(66, offsetY + 56);
-    canvasContext.lineTo(738, offsetY + 56);
-    canvasContext.stroke();
+    canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, offsetY + 24);
+    canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+    canvasContext.textAlign = "right";
+    canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, offsetY + 24);
+    canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, offsetY + 48);
+    canvasContext.textAlign = "left";
   };
 
-  // Seitenzahl auf Seite 1 wenn mehrseitig
-  if (neededPages > 1) {
-    canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
-    canvasContext.fillStyle = "#666666";
-    canvasContext.textAlign = "right";
-    canvasContext.fillText(`Seite 1 von ${neededPages}`, 738, 345 + headerShift + 24);
-    canvasContext.textAlign = "left";
-    canvasContext.fillStyle = "#111111";
-  }
+  const footerSegments = [
+    business.bankName ? `Bank: ${business.bankName}` : "",
+    business.iban ? `IBAN: ${business.iban}` : "",
+    business.bic ? `BIC: ${business.bic}` : "",
+    business.uid ? `UID: ${business.uid}` : ""
+  ].filter(Boolean);
+  const footerText = footerSegments.join("; ");
+
+  const drawFooter = (pageIndex) => {
+    const offsetY = pageIndex * PAGE_HEIGHT;
+    canvasContext.strokeStyle = "#222222";
+    canvasContext.lineWidth = 1;
+    canvasContext.beginPath();
+    canvasContext.moveTo(14, offsetY + FOOTER_LINE_Y);
+    canvasContext.lineTo(780, offsetY + FOOTER_LINE_Y);
+    canvasContext.stroke();
+    if (footerText) {
+      canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
+      canvasContext.fillStyle = "#333333";
+      canvasContext.textAlign = "left";
+      canvasContext.fillText(footerText, 16, offsetY + FOOTER_TEXT_Y);
+    }
+    if (neededPages > 1) {
+      canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
+      canvasContext.fillStyle = "#666666";
+      canvasContext.textAlign = "right";
+      canvasContext.fillText(`Seite ${pageIndex + 1} von ${neededPages}`, 778, offsetY + FOOTER_TEXT_Y);
+      canvasContext.textAlign = "left";
+    }
+  };
 
   // --- Positionen zeichnen ---
   let currentPage = 0;
-  let itemY = drawTableHeader(404 + headerShift);
+  let itemY = drawTableHeader(Math.max(firstPageTableOffset, invoiceMetaBottom + 8));
 
   // Continuation-Header für Folgeseiten
   for (let p = 1; p < neededPages; p++) {
@@ -2685,7 +2821,9 @@ async function renderCanvas() {
 
   // --- Summen (immer auf letzter Seite) ---
   const lastPageOffsetY = currentPage * PAGE_HEIGHT;
-  const sumDividerY = Math.max(itemY - 10, lastPageOffsetY + 468 + (currentPage === 0 ? headerShift : 0));
+  const sumDividerY = currentPage === 0
+    ? Math.max(itemY - 10, lastPageOffsetY + 468 + headerShift)
+    : itemY - 10;
   canvasContext.strokeStyle = "#202020";
   canvasContext.lineWidth = 1;
   canvasContext.beginPath();
@@ -2693,7 +2831,9 @@ async function renderCanvas() {
   canvasContext.lineTo(738, sumDividerY);
   canvasContext.stroke();
 
-  const totalsStartY = Math.max(itemY + 18, lastPageOffsetY + 500 + (currentPage === 0 ? headerShift : 0));
+  const totalsStartY = currentPage === 0
+    ? Math.max(itemY + 18, lastPageOffsetY + 500 + headerShift)
+    : itemY + 18;
 
   const drawAmountLine = (label, value, y, bold = false) => {
     canvasContext.textAlign = "left";
@@ -2713,7 +2853,7 @@ async function renderCanvas() {
     drawAmountLine("Rabatt-Abzug", `- ${formatAmount(totals.discountTotal)}`, totalsStartY + 24);
   }
   drawAmountLine(getPreviewTaxLabel(), formatAmount(totals.taxTotal), taxLineY);
-  drawAmountLine("Gesamtbetrag €", formatAmount(totals.grossTotal), totalLineY, true);
+  drawAmountLine("Gesamtbetrag \u20AC", formatAmount(totals.grossTotal), totalLineY, true);
 
   canvasContext.beginPath();
   canvasContext.lineWidth = 1.8;
@@ -2723,8 +2863,8 @@ async function renderCanvas() {
   canvasContext.textAlign = "left";
 
   const paymentLines = [
-    `Fällig am: ${formatDate(state.invoiceDraft.dueDate)}`,
-    business.paymentNote || "Fällig innerhalb von 14 Tagen ohne Abzug.",
+    `F\u00E4llig am: ${formatDate(state.invoiceDraft.dueDate)}`,
+    business.paymentNote || "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
     state.invoiceDraft.notes || ""
   ].filter(Boolean);
 
@@ -2741,24 +2881,8 @@ async function renderCanvas() {
     drawWrappedText(canvasContext, business.footerNote, 66, Math.max(blockY + 26, footerBaseY), 610, 18, 3);
   }
 
-  const footerLine = [business.bankName, business.iban, business.bic, business.uid]
-    .filter(Boolean)
-    .join("; ");
-  if (footerLine) {
-    canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
-    canvasContext.fillStyle = "#333333";
-    canvasContext.fillText(footerLine, 58, lastPageOffsetY + PAGE_HEIGHT - 59);
-  }
-
-  // Seitennummern auf allen Seiten
-  if (neededPages > 1) {
-    for (let p = 0; p < neededPages; p++) {
-      canvasContext.font = '11px Calibri, Candara, "Segoe UI", sans-serif';
-      canvasContext.fillStyle = "#888888";
-      canvasContext.textAlign = "right";
-      canvasContext.fillText(`Seite ${p + 1} von ${neededPages}`, 738, p * PAGE_HEIGHT + PAGE_HEIGHT - 20);
-      canvasContext.textAlign = "left";
-    }
+  for (let p = 0; p < neededPages; p += 1) {
+    drawFooter(p);
   }
 
   if (state.invoiceDraft.signatureDataUrl) {
@@ -2794,7 +2918,7 @@ function schedulePreviewRender() {
 async function saveSettings(event) {
   event.preventDefault();
   try {
-    setLoading(true, "Änderungen werden gespeichert und synchronisiert...");
+    setLoading(true, "\u00C4nderungen werden gespeichert und synchronisiert...");
     const settingsPayload = readSettingsForm();
     const response = await api("/api/settings", {
       method: "PUT",
@@ -2969,9 +3093,9 @@ async function resetAdminUserPassword(username) {
 
     state.adminUsers = normalizeLegacyData(response.users || []);
     renderAdminUsers();
-    setStatus(response.message || `Passwort von ${username} wurde zurückgesetzt.`, "success");
+    setStatus(response.message || `Passwort von ${username} wurde zur\u00FCckgesetzt.`, "success");
   } catch (error) {
-    setStatus(error.message || "Passwort konnte nicht zurückgesetzt werden.", "error");
+    setStatus(error.message || "Passwort konnte nicht zur\u00FCckgesetzt werden.", "error");
   }
 }
 
@@ -2985,16 +3109,16 @@ async function deleteAdminUser(username) {
   }
 
   try {
-    setLoading(true, "Benutzer wird gelöscht und synchronisiert...");
+    setLoading(true, "Benutzer wird gel\u00F6scht und synchronisiert...");
     const response = await api(`/api/admin/users/${encodeURIComponent(username)}`, {
       method: "DELETE"
     });
 
     state.adminUsers = normalizeLegacyData(response.users || []);
     renderAdminUsers();
-    setStatus(response.message || `Benutzer ${username} wurde gelöscht.`, "success");
+    setStatus(response.message || `Benutzer ${username} wurde gel\u00F6scht.`, "success");
   } catch (error) {
-    setStatus(error.message || "Benutzer konnte nicht gelöscht werden.", "error");
+    setStatus(error.message || "Benutzer konnte nicht gel\u00F6scht werden.", "error");
   }
 }
 
@@ -3012,8 +3136,8 @@ async function submitPasswordChange(event) {
   }
 
   if (nextPassword !== confirmPassword) {
-    setStatus("Die beiden Kennwörter stimmen nicht überein.", "error");
-    window.alert("Die beiden Kennwörter stimmen nicht überein.");
+    setStatus("Die beiden Kennw\u00F6rter stimmen nicht \u00FCberein.", "error");
+    window.alert("Die beiden Kennw\u00F6rter stimmen nicht \u00FCberein.");
     passwordDialogConfirmInput?.focus();
     return;
   }
@@ -3028,11 +3152,11 @@ async function submitPasswordChange(event) {
     persistStoredCredentials(state.auth.username, nextPassword);
     populateSettingsForm();
     closePasswordDialog();
-    setStatus("Kennwort wurde geändert.", "success");
-    window.alert("Kennwort wurde erfolgreich geändert.");
+    setStatus("Kennwort wurde ge\u00E4ndert.", "success");
+    window.alert("Kennwort wurde erfolgreich ge\u00E4ndert.");
   } catch (error) {
-    setStatus(error.message || "Kennwort konnte nicht geändert werden.", "error");
-    window.alert(error.message || "Kennwort konnte nicht geändert werden.");
+    setStatus(error.message || "Kennwort konnte nicht ge\u00E4ndert werden.", "error");
+    window.alert(error.message || "Kennwort konnte nicht ge\u00E4ndert werden.");
   }
 }
 
@@ -3125,9 +3249,9 @@ async function handleCustomerTableClick(event) {
       renderCustomers();
       renderCustomerOptions();
       schedulePreviewRender();
-      setStatus("Kunde gelöscht.", "success");
+      setStatus("Kunde gel\u00F6scht.", "success");
     } catch (error) {
-      setStatus(error.message || "Kunde konnte nicht gelöscht werden.", "error");
+      setStatus(error.message || "Kunde konnte nicht gel\u00F6scht werden.", "error");
     }
   }
 }
@@ -3149,7 +3273,7 @@ async function handleArticleTableClick(event) {
     return;
   }
 
-  if (window.confirm(`Artikel "${article.name}" wirklich löschen?`)) {
+  if (window.confirm(`Artikel "${article.name}" wirklich l\u00F6schen?`)) {
     try {
       await api(`/api/articles/${article.id}`, { method: "DELETE" });
       state.articles = state.articles.filter((entry) => entry.id !== article.id);
@@ -3160,9 +3284,9 @@ async function handleArticleTableClick(event) {
       renderInvoiceItems();
       updateInvoiceTotalsDisplay();
       schedulePreviewRender();
-      setStatus("Artikel gelöscht.", "success");
+      setStatus("Artikel gel\u00F6scht.", "success");
     } catch (error) {
-      setStatus(error.message || "Artikel konnte nicht gelöscht werden.", "error");
+      setStatus(error.message || "Artikel konnte nicht gel\u00F6scht werden.", "error");
     }
   }
 }
@@ -3457,7 +3581,7 @@ async function sendInvoice() {
     sendInvoiceButton.textContent = "Rechnung wird gesendet...";
     const customer = selectedCustomer();
     if (!customer?.email) {
-      showInvoiceDraftWarning("Beim ausgewählten Kunden ist keine E-Mail-Adresse hinterlegt.");
+      showInvoiceDraftWarning("Beim ausgew\u00E4hlten Kunden ist keine E-Mail-Adresse hinterlegt.");
       return;
     }
 
@@ -3519,7 +3643,7 @@ async function shareInvoiceDraft() {
   try {
     const customer = selectedCustomer();
     if (!customer) {
-      showInvoiceDraftWarning("Bitte zuerst einen Kunden auswählen.");
+      showInvoiceDraftWarning("Bitte zuerst einen Kunden ausw\u00E4hlen.");
       return;
     }
 
@@ -3567,7 +3691,7 @@ async function shareInvoiceDraft() {
     renderInvoiceItems();
     updateInvoiceTotalsDisplay();
     schedulePreviewRender();
-    setStatus("Rechnung wurde zum Teilen geöffnet.", "success");
+    setStatus("Rechnung wurde zum Teilen ge\u00F6ffnet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
@@ -3626,7 +3750,7 @@ async function shareExistingInvoice(invoiceId) {
     }
 
     await shareInvoiceFile(invoice);
-    setStatus("Rechnung wurde zum Teilen geöffnet.", "success");
+    setStatus("Rechnung wurde zum Teilen ge\u00F6ffnet.", "success");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht geteilt werden.", "error");
     window.alert(error.message || "Rechnung konnte nicht geteilt werden.");
@@ -3637,7 +3761,7 @@ async function shareExistingInvoice(invoiceId) {
 
 async function prepareInvoiceForSend() {
   if (!state.invoiceDraft.customerId) {
-    showInvoiceDraftWarning("Bitte zuerst einen Kunden auswählen.");
+    showInvoiceDraftWarning("Bitte zuerst einen Kunden ausw\u00E4hlen.");
     return;
   }
 
@@ -3653,7 +3777,7 @@ async function prepareInvoiceForSend() {
     openSendDialog();
     await renderCanvas();
     refreshSendPreview();
-    setStatus("Rechnung vorbereitet. Bitte prüfen, bei Bedarf unterschreiben und danach senden.", "info");
+    setStatus("Rechnung vorbereitet. Bitte pr\u00FCfen, bei Bedarf unterschreiben und danach senden.", "info");
   } catch (error) {
     setStatus(error.message || "Rechnung konnte nicht vorbereitet werden.", "error");
   } finally {
@@ -3714,7 +3838,7 @@ async function handleLogout() {
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch {
-    // Token kann bereits ungültig sein.
+    // Token kann bereits ungueltig sein.
   }
 
   clearAuthToken();
@@ -3797,7 +3921,7 @@ function bindInstallPrompt() {
     }
 
     window.alert(
-      "Bitte im Browser-Menü „Zum Startbildschirm hinzufügen“ oder „App installieren“ wählen."
+      "Bitte im Browser-Men\u00FC \u201EZum Startbildschirm hinzuf\u00FCgen\u201C oder \u201EApp installieren\u201C w\u00E4hlen."
     );
   });
 
@@ -3925,6 +4049,16 @@ function bindStaticEvents() {
   settingsForm.addEventListener("submit", saveSettings);
   settingsForm.addEventListener("input", updateSettingsSaveButtonVisibility);
   settingsForm.addEventListener("change", updateSettingsSaveButtonVisibility);
+  settingsForm.querySelectorAll("details.settings-accordion").forEach((detailsElement) => {
+    detailsElement.addEventListener("toggle", () => {
+      if (!detailsElement.open) {
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => keepSettingsAccordionInView(detailsElement));
+      });
+    });
+  });
   adminUserForm?.addEventListener("submit", createAdminUser);
   saveAdminDefaultPasswordButton?.addEventListener("click", saveAdminDefaultPassword);
   adminDefaultPasswordInput?.addEventListener("input", updateAdminDefaultPasswordButtonVisibility);
@@ -4178,6 +4312,7 @@ bindInstallPrompt();
 bindStaticEvents();
 registerServiceWorker();
 initializeApp();
+
 
 
 

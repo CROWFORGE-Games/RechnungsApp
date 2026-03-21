@@ -565,6 +565,10 @@ h3 {
 
 .dialog-card--preview {
   width: min(100%, 920px);
+  display: flex;
+  flex-direction: column;
+  max-height: min(90dvh, 980px);
+  min-height: 0;
 }
 
 .auth-card__logo {
@@ -627,6 +631,7 @@ h3 {
 
 .settings-accordion {
   overflow: hidden;
+  scroll-margin-top: 92px;
 }
 
 .settings-accordion__summary {
@@ -689,6 +694,7 @@ h3 {
 .settings-accordion__content {
   margin-top: 8px;
   padding: 0 2px 6px;
+  overflow: visible;
 }
 
 .settings-section__grid {
@@ -879,6 +885,10 @@ textarea {
   margin-inline: calc(var(--panel-padding, 0px) * -1);
   padding: 12px var(--panel-padding, 0px) calc(10px + env(safe-area-inset-bottom));
   background: linear-gradient(180deg, rgba(247, 252, 249, 0), rgba(247, 252, 249, 0.94) 24%, rgba(247, 252, 249, 0.98));
+}
+
+.panel-form-actions[hidden] {
+  display: none !important;
 }
 
 .primary,
@@ -1299,16 +1309,39 @@ th {
 
 .dialog-preview {
   margin-top: 18px;
-  border-radius: 22px;
-  overflow: visible;
-  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  flex: 1;
+  padding-right: 4px;
 }
 
-#sendPreviewCanvas {
+.send-preview-page {
+  display: grid;
+  gap: 8px;
+}
+
+.send-preview-page + .send-preview-page {
+  margin-top: 24px;
+}
+
+.send-preview-page__label {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-cool);
+}
+
+.send-preview-page__canvas {
   width: 100%;
   height: auto;
   display: block;
   background: white;
+  border-radius: 8px;
+  border: 1px solid rgba(23, 42, 31, 0.12);
+  box-shadow: 0 6px 14px rgba(23, 42, 31, 0.06);
 }
 
 .signature-card {
@@ -1445,13 +1478,14 @@ th {
 
 .customer-card__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: row;
   gap: 8px;
   margin-top: 10px;
 }
 
 .customer-card__actions .secondary,
 .customer-card__actions .danger {
+  flex: 1;
   min-width: 0;
 }
 /* Artikel-Gruppen-Badge */
@@ -1623,6 +1657,7 @@ th {
   grid-column: span 2;
   margin: 0;
   padding: 6px 0;
+  scroll-margin-top: 92px;
   border-radius: 22px;
   background: transparent;
   box-shadow: none;
@@ -1651,6 +1686,8 @@ th {
   padding: 22px;
   border-radius: 28px;
   overflow: auto;
+  scroll-padding-top: 92px;
+  scroll-padding-bottom: 32px;
   z-index: 30;
   transform: translateX(calc(100% + 28px));
   transition: transform 220ms ease;
@@ -2190,15 +2227,17 @@ body.panel-open {
     top: 0;
     left: 0;
     right: 0;
-    bottom: calc(var(--mobile-nav-height) + 10px + env(safe-area-inset-bottom));
+    bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom));
     width: 100%;
     max-width: 100%;
-    max-height: calc(100dvh - var(--mobile-nav-height) - 10px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - var(--mobile-nav-height) - env(safe-area-inset-bottom));
     min-height: auto;
     padding: calc(14px + env(safe-area-inset-top)) 14px 24px;
     border-radius: 0;
     transform: translateY(100%);
     background: rgba(255, 255, 255, 0.98);
+    scroll-padding-top: calc(78px + env(safe-area-inset-top));
+    scroll-padding-bottom: calc(var(--mobile-nav-height) + 24px + env(safe-area-inset-bottom));
     z-index: 50;
   }
 
@@ -2294,7 +2333,9 @@ body.panel-open {
   .dialog-preview {
     margin-top: 14px;
     border-radius: 18px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0;
   }
 
   .dialog-card,
@@ -2322,7 +2363,7 @@ body.panel-open {
   }
 
   #invoiceCanvas,
-  #sendPreviewCanvas {
+  .send-preview-page__canvas {
     width: 100%;
     max-width: 100%;
     border-radius: 18px;

@@ -1,4 +1,4 @@
-const STATIC_CACHE = "billingapp-static-v62";
+const STATIC_CACHE = "billingapp-static-v63";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

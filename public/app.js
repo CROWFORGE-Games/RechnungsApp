@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "V1.1.0";
+﻿const APP_VERSION = "V1.1.1";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -763,6 +763,16 @@ function toggleNavigation() {
   window.localStorage.setItem(STORAGE_KEYS.navCollapsed, String(nextState));
 }
 
+function collapseSettingsAccordions() {
+  if (!settingsForm) {
+    return;
+  }
+
+  settingsForm.querySelectorAll("details.settings-accordion").forEach((detailsElement) => {
+    detailsElement.open = false;
+  });
+}
+
 function openPanel(panelId) {
   const targetPanel = panelElements.find((panel) => panel.id === panelId);
   if (!targetPanel || targetPanel.hidden) {
@@ -783,6 +793,10 @@ function openPanel(panelId) {
   setActiveRail(panelId);
   panelOverlay.hidden = false;
   document.body.classList.add("panel-open");
+
+  if (panelId === "settingsPanel") {
+    collapseSettingsAccordions();
+  }
 
   panelElements.forEach((panel) => {
     const isOpen = panel.id === panelId;

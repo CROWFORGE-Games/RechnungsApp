@@ -1123,16 +1123,30 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
   }
 
   try {
+    let user = findUserByUsername(store, normalizedUsername);
     const response = await requestGoogleSheetsSync("getUserData", { username: normalizedUsername });
     if (!response?.ok || !response.data) {
-      return findUserByUsername(store, normalizedUsername);
+      if (user) {
+        queueGoogleSheetsSync(user);
+      }
+      return user;
     }
 
     const remoteData = response.data;
     const remotePassword = String(remoteData?.settings?.auth?.password || "admin");
-    let user = findUserByUsername(store, normalizedUsername);
 
     if (user) {
+      const localActivity = new Date(user.lastActivityAt || user.updatedAt || 0).getTime();
+      const remoteActivity = new Date(
+        remoteData.lastActivityAt || remoteData.updatedAt || 0
+      ).getTime();
+      const shouldBackfillRemote = remoteDataNeedsBackfill(user, remoteData);
+
+      if (shouldBackfillRemote || localActivity > remoteActivity) {
+        queueGoogleSheetsSync(user);
+        return user;
+      }
+
       const applyResult = applyRemoteUserData(user, remoteData);
       user.settings = mergeSettings({
         ...user.settings,

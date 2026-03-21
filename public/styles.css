@@ -328,18 +328,28 @@ textarea {
 
 .change-password-button {
   justify-self: start;
-  margin-top: 10px;
 }
 
 .logout-inline-button {
   justify-self: start;
-  margin-top: 10px;
   background: rgba(176, 68, 68, 0.12);
   color: var(--danger);
 }
 
 .logout-inline-button:hover {
   background: rgba(176, 68, 68, 0.18);
+}
+
+.settings-user-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.settings-user-actions .change-password-button,
+.settings-user-actions .logout-inline-button {
+  margin-top: 0;
 }
 
 .group-field {
@@ -1210,7 +1220,12 @@ th {
 
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.admin-user-lock-button {
+  font-weight: 700;
 }
 
 .admin-user-summary {
@@ -1226,6 +1241,13 @@ th {
   text-align: left;
 }
 
+.admin-user-summary__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .admin-user-summary strong {
   font-size: 1rem;
 }
@@ -1234,6 +1256,20 @@ th {
   color: var(--muted);
   font-size: 0.88rem;
   white-space: nowrap;
+}
+
+.admin-user-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #8f2028;
+  background: rgba(192, 64, 76, 0.14);
+  border: 1px solid rgba(192, 64, 76, 0.16);
 }
 
 .admin-user-migration {
@@ -1582,6 +1618,27 @@ th {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-username-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.settings-username-line__label {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.settings-username-line__value {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 /* Share-Button in Rechnungshistorie */
@@ -2053,6 +2110,18 @@ body.panel-open {
 
   .logout-inline-button:hover {
     background: rgba(176, 68, 68, 0.18);
+  }
+
+  .settings-user-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .settings-user-actions .change-password-button,
+  .settings-user-actions .logout-inline-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .history-item {

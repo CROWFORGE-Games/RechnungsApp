@@ -1,4 +1,4 @@
-const STATIC_CACHE = "billingapp-static-v64";
+﻿const STATIC_CACHE = "billingapp-static-v65";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -73,3 +73,4 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+

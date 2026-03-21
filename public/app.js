@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "V1.1.2";
+﻿const APP_VERSION = "V1.1.3";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -639,6 +639,80 @@ function clearAuthToken() {
   window.localStorage.removeItem(STORAGE_KEYS.authToken);
 }
 
+function normalizeStorageUsername(username = "") {
+  return String(username || "").trim().toLowerCase();
+}
+
+function getInvoiceLogoStorageKey(username = state.settings?.auth?.username || state.auth.username) {
+  const normalizedUsername = normalizeStorageUsername(username);
+  return normalizedUsername ? `billingapp.invoiceLogo.${normalizedUsername}` : "";
+}
+
+function readPersistedInvoiceLogo(username = state.settings?.auth?.username || state.auth.username) {
+  const storageKey = getInvoiceLogoStorageKey(username);
+  if (!storageKey) {
+    return "";
+  }
+  return String(window.localStorage.getItem(storageKey) || "");
+}
+
+function persistInvoiceLogoLocally(dataUrl = "", username = state.settings?.auth?.username || state.auth.username) {
+  const storageKey = getInvoiceLogoStorageKey(username);
+  if (!storageKey) {
+    return;
+  }
+  try {
+    if (String(dataUrl || "").startsWith("data:image/")) {
+      window.localStorage.setItem(storageKey, String(dataUrl));
+      return;
+    }
+    window.localStorage.removeItem(storageKey);
+  } catch (error) {
+    console.warn("Rechnungslogo konnte lokal nicht gespeichert werden.", error);
+  }
+}
+
+function hydrateInvoiceLogoFromLocalCache(username = state.settings?.auth?.username || state.auth.username) {
+  if (!state.settings) {
+    return;
+  }
+
+  const currentBranding = normalizeLegacyData(state.settings?.branding || {});
+  const currentDataUrl = String(currentBranding.invoiceLogoDataUrl || "");
+  if (currentDataUrl.startsWith("data:image/")) {
+    setBrandingLogoState("invoice", currentDataUrl);
+    persistInvoiceLogoLocally(currentDataUrl, username);
+    return;
+  }
+
+  const cachedDataUrl = readPersistedInvoiceLogo(username);
+  if (cachedDataUrl.startsWith("data:image/")) {
+    setBrandingLogoState("invoice", cachedDataUrl);
+  }
+}
+
+async function fetchImageAsDataUrl(url) {
+  const response = await fetch(url, { credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error("Bild konnte nicht geladen werden.");
+  }
+
+  const blob = await response.blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result || "");
+      if (!result.startsWith("data:image/")) {
+        reject(new Error("Bilddaten konnten nicht gelesen werden."));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(new Error("Bilddaten konnten nicht gelesen werden."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function buildAuthenticatedFileUrl(filePath) {
   if (!filePath) {
     return "";
@@ -671,6 +745,8 @@ function resetAuthenticatedState() {
     items: [],
     signatureDataUrl: ""
   };
+  logoState.loaded = false;
+  logoState.image = null;
 }
 
 function setStatus(message, tone = "info") {
@@ -1158,11 +1234,20 @@ async function loadLogo() {
   }
 
   try {
-    logoState.image = await loadImage(getBrandAssetUrl("invoice"));
+    const serverLogoDataUrl = await fetchImageAsDataUrl(getBrandAssetUrl("invoice"));
+    setBrandingLogoState("invoice", serverLogoDataUrl);
+    persistInvoiceLogoLocally(serverLogoDataUrl);
+    logoState.image = await loadImage(serverLogoDataUrl);
     logoState.loaded = true;
     return logoState.image;
   } catch {
-    // Platzhalter statt Standardlogo.
+    try {
+      logoState.image = await loadImage(getBrandAssetUrl("invoice"));
+      logoState.loaded = true;
+      return logoState.image;
+    } catch {
+      // Platzhalter statt Standardlogo.
+    }
   }
 
   logoState.loaded = true;
@@ -1190,6 +1275,16 @@ function setBrandingLogoState(kind, dataUrl = "") {
           appLogoDataUrl: String(dataUrl || "")
         })
   };
+}
+
+function applyReceivedSettings(settings) {
+  if (!settings) {
+    return;
+  }
+
+  state.settings = normalizeLegacyData(settings);
+  state.auth.username = settings.auth?.username || state.auth.username;
+  hydrateInvoiceLogoFromLocalCache(state.settings?.auth?.username || state.auth.username);
 }
 
 function populateSettingsForm() {
@@ -1676,6 +1771,9 @@ async function saveSelectedLogo(kind, file) {
   const previousBranding = normalizeLegacyData({ ...(state.settings?.branding || {}) });
   const imageDataUrl = await fileToPngDataUrl(file);
   setBrandingLogoState(kind, imageDataUrl);
+  if (kind === "invoice") {
+    persistInvoiceLogoLocally(imageDataUrl);
+  }
   refreshBrandAssets();
 
   setLoading(true, kind === "invoice" ? "Rechnungslogo wird gespeichert..." : "App-Logo wird gespeichert...");
@@ -1686,7 +1784,7 @@ async function saveSelectedLogo(kind, file) {
     });
 
     if (response?.settings) {
-      state.settings = normalizeLegacyData({
+      applyReceivedSettings({
         ...state.settings,
         ...response.settings,
         branding: {
@@ -1694,6 +1792,9 @@ async function saveSelectedLogo(kind, file) {
           ...(response.settings?.branding || {})
         }
       });
+      if (kind === "invoice") {
+        persistInvoiceLogoLocally(state.settings?.branding?.invoiceLogoDataUrl || "");
+      }
     }
 
     refreshBrandAssets();
@@ -1703,6 +1804,9 @@ async function saveSelectedLogo(kind, file) {
     }
   } catch (error) {
     state.settings.branding = previousBranding;
+    if (kind === "invoice") {
+      persistInvoiceLogoLocally(previousBranding.invoiceLogoDataUrl || "");
+    }
     refreshBrandAssets();
     if (kind === "invoice") {
       await renderCanvas();
@@ -1857,7 +1961,10 @@ function fillArticleForm(article = null, showForm = true) {
   articleFields.unitPrice.value = entry.unitPrice ?? "";
   articleFields.taxRate.value = entry.taxRate ?? 20;
   articleFields.description.value = entry.description || "";
-  renderArticleGroupSuggestions(articleFields.group?.value || "", false);
+  if (articleGroupSuggestions) {
+    articleGroupSuggestions.hidden = true;
+    articleGroupSuggestions.innerHTML = "";
+  }
   if (showForm) articleForm.hidden = false;
   updateArticleFormActionVisibility();
   if (showForm) scrollPanelFormToTop(articleForm);
@@ -2102,7 +2209,7 @@ function renderArticles() {
       const meta = [
         article.unit ? `Einheit: ${article.unit}` : "",
         article.taxRate != null ? `MwSt.: ${article.taxRate} %` : ""
-      ].filter(Boolean).join(" Â· ");
+      ].filter(Boolean).join(" \u00B7 ");
       return `
         <tr>
           <td colspan="5" style="padding: 4px 0; border: none;">
@@ -2145,6 +2252,9 @@ function renderAdminUsers() {
       const isExpanded = state.adminExpandedUsers.includes(user.username);
       const lastOnlineLabel = escapeHtml(formatDateTime(user.lastOnlineAt) || "-");
       const companyLabel = user.username === "admin" ? "" : escapeHtml(user.companyName || "-");
+      const lockBadge = user.isLocked
+        ? '<span class="admin-user-lock-badge">Gesperrt</span>'
+        : "";
       const migrationLabel =
         user.username === "admin"
           ? ""
@@ -2167,7 +2277,10 @@ function renderAdminUsers() {
               data-toggle-admin-user="${escapeHtml(user.username)}"
               aria-expanded="${isExpanded ? "true" : "false"}"
             >
-              <strong>${escapeHtml(user.username)}</strong>
+              <span class="admin-user-summary__name">
+                <strong>${escapeHtml(user.username)}</strong>
+                ${lockBadge}
+              </span>
               <span class="admin-user-summary__meta">${lastOnlineLabel}</span>
             </button>
           </td>
@@ -2179,6 +2292,9 @@ function renderAdminUsers() {
               user.username === "admin"
                 ? '<div class="muted-note">Passwort über Einstellungen ändern</div>'
                 : `<div class="row-actions">
+                    <button class="admin-user-lock-button ${user.isLocked ? "secondary" : "ghost"}" type="button" data-toggle-user-lock="${escapeHtml(user.username)}">
+                      ${user.isLocked ? "Benutzer entsperren" : "Benutzer sperren"}
+                    </button>
                     <button class="danger" type="button" data-reset-user-password="${escapeHtml(user.username)}">Passwort zur\u00FCcksetzen</button>
                     <button class="danger ghost-danger" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer l\u00F6schen</button>
                   </div>`
@@ -2661,8 +2777,14 @@ async function renderCanvas() {
     ? customerAddressStartY + (customerAddressLines.length - 1) * 20 + 18
     : customerAddressStartY;
 
+  const customerInfoName = customer ? String(customer.name || "").trim() : "";
+  const customerInfoContact = customer ? String(customer.contactPerson || "").trim() : "";
   const customerInfoLines = customer
     ? [
+        customerInfoName,
+        customerInfoContact && customerInfoContact !== customerInfoName
+          ? `Kontakt:      ${customerInfoContact}`
+          : "",
         `Kunden-Nr.:   ${customer.customerNumber || "-"}`,
         customer.phone ? `Telefon:      ${customer.phone}` : "",
         customer.email ? `E-Mail:       ${customer.email}` : "",
@@ -2939,8 +3061,7 @@ async function saveSettings(event) {
       body: JSON.stringify({ settings: settingsPayload })
     });
 
-    state.settings = normalizeLegacyData(response.settings);
-    state.auth.username = response.settings.auth?.username || state.auth.username;
+    applyReceivedSettings(response.settings);
     if (invoiceLogoFileInput) {
       invoiceLogoFileInput.value = "";
     }
@@ -2969,7 +3090,7 @@ async function clearInvoiceLogo() {
     setLoading(true, "Rechnungslogo wird entfernt...");
     const response = await removeLogoAsset("invoice");
     if (response?.settings) {
-      state.settings = normalizeLegacyData({
+      applyReceivedSettings({
         ...state.settings,
         ...response.settings,
         branding: {
@@ -2980,6 +3101,7 @@ async function clearInvoiceLogo() {
     } else {
       setBrandingLogoState("invoice", "");
     }
+    persistInvoiceLogoLocally("");
     if (invoiceLogoFileInput) {
       invoiceLogoFileInput.value = "";
     }
@@ -3000,7 +3122,7 @@ async function clearAppLogo() {
     setLoading(true, "App-Logo wird entfernt...");
     const response = await removeLogoAsset("app");
     if (response?.settings) {
-      state.settings = normalizeLegacyData({
+      applyReceivedSettings({
         ...state.settings,
         ...response.settings,
         branding: {
@@ -3047,7 +3169,7 @@ async function createAdminUser(event) {
 
     state.adminUsers = normalizeLegacyData(response.users || []);
     if (response.settings) {
-      state.settings = normalizeLegacyData(response.settings);
+      applyReceivedSettings(response.settings);
       populateSettingsForm();
     }
     renderAdminUsers();
@@ -3079,7 +3201,7 @@ async function saveAdminDefaultPassword() {
       body: JSON.stringify({ password: defaultPassword })
     });
 
-    state.settings = normalizeLegacyData(response.settings);
+    applyReceivedSettings(response.settings);
     populateSettingsForm();
     if (adminDefaultPasswordInput) {
       adminDefaultPasswordInput.value = defaultPassword;
@@ -3110,6 +3232,32 @@ async function resetAdminUserPassword(username) {
     setStatus(response.message || `Passwort von ${username} wurde zur\u00FCckgesetzt.`, "success");
   } catch (error) {
     setStatus(error.message || "Passwort konnte nicht zur\u00FCckgesetzt werden.", "error");
+  }
+}
+
+async function toggleAdminUserLock(username, isCurrentlyLocked) {
+  if (!username) {
+    return;
+  }
+
+  const actionLabel = isCurrentlyLocked ? "entsperren" : "sperren";
+  if (!window.confirm(`Willst du den Benutzer ${username} wirklich ${actionLabel}?`)) {
+    return;
+  }
+
+  try {
+    setLoading(true, isCurrentlyLocked ? "Benutzer wird entsperrt und synchronisiert..." : "Benutzer wird gesperrt und synchronisiert...");
+    const response = await api(`/api/admin/users/${encodeURIComponent(username)}/toggle-lock`, {
+      method: "POST"
+    });
+
+    state.adminUsers = normalizeLegacyData(response.users || []);
+    renderAdminUsers();
+    setStatus(response.message || `Benutzer ${username} wurde ${isCurrentlyLocked ? "entsperrt" : "gesperrt"}.`, "success");
+  } catch (error) {
+    setStatus(error.message || "Benutzerstatus konnte nicht geändert werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -3162,7 +3310,7 @@ async function submitPasswordChange(event) {
       body: JSON.stringify({ password: nextPassword })
     });
 
-    state.settings = normalizeLegacyData(response.settings);
+    applyReceivedSettings(response.settings);
     persistStoredCredentials(state.auth.username, nextPassword);
     populateSettingsForm();
     closePasswordDialog();
@@ -3613,8 +3761,7 @@ async function sendInvoice() {
     });
 
     state.invoices = [response.invoice, ...state.invoices];
-    state.settings = normalizeLegacyData(response.settings);
-    state.auth.username = response.settings.auth?.username || state.auth.username;
+    applyReceivedSettings(response.settings);
     populateSettingsForm();
     renderInvoiceHistory();
     closeSendDialog();
@@ -3682,8 +3829,7 @@ async function shareInvoiceDraft() {
 
     state.invoices = [response.invoice, ...state.invoices];
     if (response.settings) {
-      state.settings = normalizeLegacyData(response.settings);
-      state.auth.username = response.settings.auth?.username || state.auth.username;
+      applyReceivedSettings(response.settings);
       populateSettingsForm();
     }
     renderInvoiceHistory();
@@ -3832,6 +3978,8 @@ async function handleAuthSubmit(event) {
     state.auth.username = response.username;
     authForm.reset();
     authSubmit.classList.remove("is-loading");
+    authSubmit.disabled = false;
+    authSubmit.textContent = originalText;
     setAuthMode("login");
     hideAuthOverlay();
     await bootstrap();
@@ -4182,6 +4330,14 @@ function bindStaticEvents() {
       return;
     }
 
+    const toggleLockButton = event.target.closest("[data-toggle-user-lock]");
+    if (toggleLockButton) {
+      const username = toggleLockButton.dataset.toggleUserLock;
+      const user = state.adminUsers.find((entry) => String(entry.username || "").trim() === String(username || "").trim());
+      await toggleAdminUserLock(username, Boolean(user?.isLocked));
+      return;
+    }
+
     const deleteButton = event.target.closest("[data-delete-user]");
     if (deleteButton) {
       await deleteAdminUser(deleteButton.dataset.deleteUser);
@@ -4222,7 +4378,7 @@ async function bootstrap() {
     const response = normalizeLegacyData(await api("/api/bootstrap"));
     const adminMode = Boolean(response.isAdmin);
     await updateLoadingStep("Einstellungen werden geladen...");
-    state.settings = normalizeLegacyData(response.settings);
+    applyReceivedSettings(response.settings);
     state.resendConfigured = Boolean(response.resendConfigured);
     state.adminUsers = response.adminUsers || [];
     // Nav-Benutzername aktualisieren
@@ -4326,6 +4482,7 @@ bindInstallPrompt();
 bindStaticEvents();
 registerServiceWorker();
 initializeApp();
+
 
 
 

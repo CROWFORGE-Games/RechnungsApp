@@ -34,7 +34,8 @@ const SHEETS = {
       'updated_at',
       'settings_updated_at',
       'last_seen_at',
-      'schema_version'
+      'schema_version',
+      'is_locked'
     ]
   },
   customers: {
@@ -292,7 +293,8 @@ function upsertUserSettings_(username, data) {
     updated_at: settingsUpdatedAt,
     settings_updated_at: settingsUpdatedAt,
     last_seen_at: String(data.lastSeenAt || ''),
-    schema_version: CURRENT_SCHEMA_VERSION
+    schema_version: CURRENT_SCHEMA_VERSION,
+    is_locked: auth.isLocked ? 'TRUE' : 'FALSE'
   });
 }
 
@@ -371,6 +373,7 @@ function listUsers_() {
       ),
       lastSeenAt: getCell_(row, userTable.indexMap, 'last_seen_at'),
       schemaVersion: getCell_(row, userTable.indexMap, 'schema_version') || CURRENT_SCHEMA_VERSION,
+      isLocked: firstBoolean_(getCell_(row, userTable.indexMap, 'is_locked'), false),
       migratedToStructuredColumns: true
     }));
 }
@@ -408,7 +411,8 @@ function buildUserSettingsFromRow_(row, indexMap) {
     auth: {
       username: getCell_(row, indexMap, 'username'),
       password: getCell_(row, indexMap, 'password'),
-      defaultUserPassword: firstNonEmpty_(getCell_(row, indexMap, 'default_user_password'), 'admin')
+      defaultUserPassword: firstNonEmpty_(getCell_(row, indexMap, 'default_user_password'), 'admin'),
+      isLocked: firstBoolean_(getCell_(row, indexMap, 'is_locked'), false)
     },
     branding: {
       hasInvoiceLogo: firstBoolean_(getCell_(row, indexMap, 'has_invoice_logo'), false)

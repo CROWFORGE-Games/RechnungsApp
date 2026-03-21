@@ -327,7 +327,8 @@ const DEFAULT_STORE = {
       username: "admin",
       password: "admin",
       defaultUserPassword: "admin",
-      adminPasswordVersion: 0
+      adminPasswordVersion: 0,
+      isLocked: false
     },
     invoice: {
       title: "Rechnung",
@@ -553,7 +554,8 @@ function createUserRecord({
         username: String(normalizedSettings?.auth?.username || username || "admin").trim() || "admin",
         password: String(normalizedSettings?.auth?.password || password || "admin"),
         defaultUserPassword: String(normalizedSettings?.auth?.defaultUserPassword || "admin"),
-        adminPasswordVersion: Number(normalizedSettings?.auth?.adminPasswordVersion || 0)
+        adminPasswordVersion: Number(normalizedSettings?.auth?.adminPasswordVersion || 0),
+        isLocked: Boolean(normalizedSettings?.auth?.isLocked)
       }
     },
     customers: normalizeCustomerCollection(Array.isArray(customers) ? customers : []),
@@ -740,7 +742,8 @@ function sanitizeSettings(settings) {
     auth: {
       username: normalizedSettings.auth?.username || "",
       password: normalizedSettings.auth?.password || "",
-      defaultUserPassword: normalizedSettings.auth?.defaultUserPassword || "admin"
+      defaultUserPassword: normalizedSettings.auth?.defaultUserPassword || "admin",
+      isLocked: Boolean(normalizedSettings.auth?.isLocked)
     },
     branding: {
       hasInvoiceLogo: Boolean(normalizedSettings.branding?.hasInvoiceLogo),
@@ -1431,9 +1434,9 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
     if (user) {
       const reconcileResult = reconcileUserWithRemoteData(user, remoteData);
       user.settings = mergeSettings({
-        ...user.settings,
-        ...(reconcileResult.shouldSyncSettings ? user.settings : remoteData.settings),
-        auth: {
+      ...user.settings,
+      ...(reconcileResult.shouldSyncSettings ? user.settings : remoteData.settings),
+      auth: {
           ...(user.settings?.auth || {}),
           ...(remoteData.settings?.auth || {}),
           username: normalizedUsername,
@@ -1442,6 +1445,9 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
             remoteData?.settings?.auth?.defaultUserPassword ||
               user.settings?.auth?.defaultUserPassword ||
               "admin"
+          ),
+          isLocked: Boolean(
+            remoteData?.settings?.auth?.isLocked ?? user.settings?.auth?.isLocked
           ),
           adminPasswordVersion:
             normalizedUsername === "admin"
@@ -1726,9 +1732,14 @@ function getUserSettingsForClient(user) {
     ...sanitizeSettings(user.settings),
     auth: {
       username: user.username,
-      password: user.settings?.auth?.password || ""
+      password: user.settings?.auth?.password || "",
+      isLocked: Boolean(user.settings?.auth?.isLocked)
     }
   };
+}
+
+function isUserLocked(user) {
+  return Boolean(user?.settings?.auth?.isLocked);
 }
 
 function getSessionToken(req) {
@@ -1790,6 +1801,13 @@ async function requireAuth(req, res, next) {
       return;
     }
 
+    if (isUserLocked(user)) {
+      store.sessions = store.sessions.filter((entry) => entry.token !== session.token);
+      await writeStore(store);
+      res.status(403).json({ error: "Dieser Benutzer wurde gesperrt." });
+      return;
+    }
+
     req.store = store;
     req.user = user;
     req.session = session;
@@ -1821,6 +1839,7 @@ function serializeAdminUser(user, options = {}) {
   return {
     id: user.id,
     username: user.username,
+    isLocked: Boolean(user.settings?.auth?.isLocked),
     companyName: String(user.settings?.business?.companyName || "").trim(),
     customerCount: Array.isArray(user.customers) ? user.customers.length : 0,
     articleCount: Array.isArray(user.articles) ? user.articles.length : 0,
@@ -2456,6 +2475,11 @@ app.post("/api/auth/login", async (req, res, next) => {
       return;
     }
 
+    if (isUserLocked(user)) {
+      res.status(403).json({ error: "Dieser Benutzer wurde gesperrt." });
+      return;
+    }
+
     markUserSeen(user);
     const session = createSession(store, user.id);
     await writeStore(store);
@@ -2526,7 +2550,8 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
       username: req.user.username,
       password: req.user.settings.auth?.password || defaultPassword,
       defaultUserPassword: defaultPassword,
-      adminPasswordVersion: 1
+      adminPasswordVersion: 1,
+      isLocked: Boolean(req.user.settings.auth?.isLocked)
     };
     markUserSettingsUpdated(req.user);
     const newUser = createUserRecord({
@@ -2576,7 +2601,8 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
     user.settings.auth = {
       ...user.settings.auth,
       username: user.username,
-      password: defaultPassword
+      password: defaultPassword,
+      isLocked: Boolean(user.settings.auth?.isLocked)
     };
     markUserSettingsUpdated(user);
 
@@ -2586,6 +2612,46 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
     res.json({
       ok: true,
       message: `Passwort von ${user.username} wurde auf ${defaultPassword} zur\u00FCckgesetzt.`,
+      users: await buildAdminUsersResponse(req.store)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/users/:username/toggle-lock", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const username = String(req.params.username || "").trim().toLowerCase();
+    if (username === "admin") {
+      res.status(400).json({ error: "Der Admin-Benutzer kann nicht gesperrt werden." });
+      return;
+    }
+
+    const user =
+      findUserByUsername(req.store, username) ||
+      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+    if (!user) {
+      res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
+      return;
+    }
+
+    const nextLockedState = !isUserLocked(user);
+    user.settings.auth = {
+      ...user.settings.auth,
+      username: user.username,
+      isLocked: nextLockedState
+    };
+    markUserSettingsUpdated(user);
+    req.store.sessions = req.store.sessions.filter((entry) => entry.userId !== user.id);
+
+    await writeStore(req.store);
+    queueGoogleSheetsSettingsSync(user);
+
+    res.json({
+      ok: true,
+      message: nextLockedState
+        ? `Benutzer ${user.username} wurde gesperrt.`
+        : `Benutzer ${user.username} wurde entsperrt.`,
       users: await buildAdminUsersResponse(req.store)
     });
   } catch (error) {
@@ -2606,7 +2672,8 @@ app.post("/api/auth/password", requireAuth, async (req, res, next) => {
       ...req.user.settings.auth,
       username: req.user.username,
       password,
-      adminPasswordVersion: req.user.username === "admin" ? 1 : Number(req.user.settings.auth?.adminPasswordVersion || 0)
+      adminPasswordVersion: req.user.username === "admin" ? 1 : Number(req.user.settings.auth?.adminPasswordVersion || 0),
+      isLocked: Boolean(req.user.settings.auth?.isLocked)
     };
     markUserSettingsUpdated(req.user);
 
@@ -2673,7 +2740,8 @@ app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, r
       username: req.user.username,
       password: req.user.settings.auth?.password || password,
       defaultUserPassword: password,
-      adminPasswordVersion: 1
+      adminPasswordVersion: 1,
+      isLocked: Boolean(req.user.settings.auth?.isLocked)
     };
     markUserSettingsUpdated(req.user);
 
@@ -2734,6 +2802,7 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
         ? String(incoming.auth.password)
         : currentUser.settings.auth?.password || "admin",
       defaultUserPassword: String(currentUser.settings.auth?.defaultUserPassword || "admin"),
+      isLocked: Boolean(currentUser.settings.auth?.isLocked),
       adminPasswordVersion:
         currentUser.username === "admin" ? 1 : Number(currentUser.settings.auth?.adminPasswordVersion || 0)
     };

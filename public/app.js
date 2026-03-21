@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "V1.1.1";
+﻿const APP_VERSION = "V1.1.2";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",

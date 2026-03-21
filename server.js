@@ -364,6 +364,8 @@ app.use(express.static(PUBLIC_DIR));
 
 const pendingGoogleSheetSyncPayloads = new Map();
 const activeGoogleSheetSyncUsers = new Set();
+const pendingGoogleSheetEntitySyncs = new Map();
+const activeGoogleSheetEntitySyncUsers = new Set();
 let importedUsersBackfillPromise = null;
 
 function roundCurrency(value) {
@@ -467,6 +469,26 @@ function markUserSeen(user) {
   return timestamp;
 }
 
+function markUserSettingsUpdated(user) {
+  const timestamp = markUserActivity(user);
+  user.settingsUpdatedAt = timestamp;
+  return timestamp;
+}
+
+function normalizeTimestamp(value, fallback = "") {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) {
+    return fallback || new Date().toISOString();
+  }
+  return date.toISOString();
+}
+
+function getTimestampMs(value) {
+  const date = new Date(value || "");
+  const time = date.getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
 function hashPassword(password) {
   // SHA-256 fÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¼r KompatibilitÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤t mit bestehenden Hashes beibehalten.
   // FÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¼r neue Deployments wÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤re scrypt/bcrypt besser ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ hier nicht geÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤ndert
@@ -508,9 +530,12 @@ function createUserRecord({
   settings,
   customers,
   articles,
+  deletedCustomers,
+  deletedArticles,
   invoices,
   createdAt,
   updatedAt,
+  settingsUpdatedAt,
   lastActivityAt,
   lastSeenAt
 } = {}) {
@@ -531,11 +556,14 @@ function createUserRecord({
         adminPasswordVersion: Number(normalizedSettings?.auth?.adminPasswordVersion || 0)
       }
     },
-    customers: Array.isArray(customers) ? customers.map((entry) => sanitizeCustomer(entry)) : [],
-    articles: Array.isArray(articles) ? articles.map((entry) => sanitizeArticle(entry)) : [],
+    customers: normalizeCustomerCollection(Array.isArray(customers) ? customers : []),
+    articles: normalizeArticleCollection(Array.isArray(articles) ? articles : []),
+    deletedCustomers: normalizeDeletedEntityCollection(Array.isArray(deletedCustomers) ? deletedCustomers : []),
+    deletedArticles: normalizeDeletedEntityCollection(Array.isArray(deletedArticles) ? deletedArticles : []),
     invoices: Array.isArray(invoices) ? normalizeLegacyData(invoices) : [],
     createdAt: normalizedCreatedAt,
     updatedAt: normalizedUpdatedAt,
+    settingsUpdatedAt: settingsUpdatedAt || normalizedUpdatedAt,
     lastActivityAt: lastActivityAt || normalizedUpdatedAt,
     lastSeenAt: lastSeenAt || ""
   };
@@ -733,6 +761,7 @@ function sanitizeCustomer(input = {}) {
   const resolvedName = String(normalizedInput.name || "").trim() || fallbackName;
   return {
     id: normalizedInput.id || crypto.randomUUID(),
+    updatedAt: normalizeTimestamp(normalizedInput.updatedAt || normalizedInput.updated_at, new Date().toISOString()),
     customerNumber: String(normalizedInput.customerNumber || "").trim(),
     name: resolvedName,
     contactPerson: fallbackName,
@@ -790,10 +819,45 @@ function findCustomerIndexByIdOrPayload(customers = [], id, input = {}) {
   return -1;
 }
 
+function findArticleIndexByIdOrPayload(articles = [], id, input = {}) {
+  const normalizedId = String(id || "").trim();
+  const normalizedInput = sanitizeArticle({ ...input, id: normalizedId || input?.id });
+  const directIndex = articles.findIndex((entry) => String(entry.id || "").trim() === normalizedId);
+  if (directIndex >= 0) {
+    return directIndex;
+  }
+
+  const syncKey = buildArticleSyncKey(normalizedInput);
+  if (syncKey.replace(/\|/g, "")) {
+    const keyIndex = articles.findIndex((entry) => buildArticleSyncKey(entry) === syncKey);
+    if (keyIndex >= 0) {
+      return keyIndex;
+    }
+  }
+
+  if (normalizedInput.number) {
+    const numberIndex = articles.findIndex(
+      (entry) => String(entry.number || "").trim() === normalizedInput.number
+    );
+    if (numberIndex >= 0) {
+      return numberIndex;
+    }
+  }
+
+  if (normalizedInput.name) {
+    return articles.findIndex(
+      (entry) => String(entry.name || "").trim().toLowerCase() === normalizedInput.name.toLowerCase()
+    );
+  }
+
+  return -1;
+}
+
 function sanitizeArticle(input = {}) {
   const normalizedInput = normalizeLegacyData(input);
   return {
     id: normalizedInput.id || crypto.randomUUID(),
+    updatedAt: normalizeTimestamp(normalizedInput.updatedAt || normalizedInput.updated_at, new Date().toISOString()),
     group: String(normalizedInput.group || "").trim(),
     number: String(normalizedInput.number || "").trim(),
     name: String(normalizedInput.name || "").trim(),
@@ -804,15 +868,97 @@ function sanitizeArticle(input = {}) {
   };
 }
 
+function sanitizeDeletedEntity(input = {}) {
+  const normalizedInput = normalizeLegacyData(input);
+  return {
+    id: String(normalizedInput.id || "").trim(),
+    deletedAt: normalizeTimestamp(normalizedInput.deletedAt || normalizedInput.deleted_at, new Date().toISOString())
+  };
+}
+
+function dedupeEntities(entries = [], sanitize, buildKey) {
+  const entitiesById = new Map();
+  const entityIdsByKey = new Map();
+
+  for (const rawEntry of entries) {
+    const entry = sanitize(rawEntry);
+    const existingById = entitiesById.get(entry.id);
+    if (existingById) {
+      if (getTimestampMs(entry.updatedAt) > getTimestampMs(existingById.updatedAt)) {
+        entitiesById.set(entry.id, {
+          ...existingById,
+          ...entry,
+          id: existingById.id
+        });
+      }
+      continue;
+    }
+
+    const key = buildKey(entry);
+    const existingIdForKey = key && key !== "||" ? entityIdsByKey.get(key) : "";
+    if (existingIdForKey) {
+      const existingByKey = entitiesById.get(existingIdForKey);
+      if (existingByKey && getTimestampMs(entry.updatedAt) > getTimestampMs(existingByKey.updatedAt)) {
+        entitiesById.set(existingIdForKey, {
+          ...existingByKey,
+          ...entry,
+          id: existingByKey.id
+        });
+      }
+      continue;
+    }
+
+    entitiesById.set(entry.id, entry);
+    if (key && key !== "||") {
+      entityIdsByKey.set(key, entry.id);
+    }
+  }
+
+  return [...entitiesById.values()].sort((left, right) =>
+    String(left.id || "").localeCompare(String(right.id || ""), "de")
+  );
+}
+
+function normalizeCustomerCollection(entries = []) {
+  return dedupeEntities(entries, sanitizeCustomer, buildCustomerSyncKey);
+}
+
+function normalizeArticleCollection(entries = []) {
+  return dedupeEntities(entries, sanitizeArticle, buildArticleSyncKey);
+}
+
+function normalizeDeletedEntityCollection(entries = []) {
+  const deletedById = new Map();
+
+  for (const rawEntry of entries) {
+    const entry = sanitizeDeletedEntity(rawEntry);
+    if (!entry.id) {
+      continue;
+    }
+
+    const existingEntry = deletedById.get(entry.id);
+    if (!existingEntry || getTimestampMs(entry.deletedAt) > getTimestampMs(existingEntry.deletedAt)) {
+      deletedById.set(entry.id, entry);
+    }
+  }
+
+  return [...deletedById.values()].sort((left, right) =>
+    String(left.id || "").localeCompare(String(right.id || ""), "de")
+  );
+}
+
 function buildSheetSyncPayload(user) {
   return {
     username: user.username,
     updatedAt: user.updatedAt,
+    settingsUpdatedAt: user.settingsUpdatedAt || user.updatedAt,
     lastActivityAt: user.lastActivityAt || user.updatedAt,
     lastSeenAt: user.lastSeenAt || "",
     settings: mergeSettings(user.settings),
-    customers: user.customers.map((entry) => sanitizeCustomer(entry)),
-    articles: user.articles.map((entry) => sanitizeArticle(entry))
+    customers: normalizeCustomerCollection(user.customers),
+    articles: normalizeArticleCollection(user.articles),
+    deletedCustomers: normalizeDeletedEntityCollection(user.deletedCustomers),
+    deletedArticles: normalizeDeletedEntityCollection(user.deletedArticles)
   };
 }
 
@@ -820,6 +966,7 @@ function buildSettingsSyncPayload(user) {
   return {
     username: user.username,
     updatedAt: user.updatedAt,
+    settingsUpdatedAt: user.settingsUpdatedAt || user.updatedAt,
     lastActivityAt: user.lastActivityAt || user.updatedAt,
     lastSeenAt: user.lastSeenAt || "",
     settings: mergeSettings(user.settings)
@@ -870,57 +1017,189 @@ function buildArticleSyncKey(entry = {}) {
   ].join("|");
 }
 
-function mergeRemoteEntityIds(remoteEntries = [], localEntries = [], buildKey) {
-  const localById = new Map();
-  const localByKey = new Map();
+function registerDeletedEntity(entries = [], id) {
+  const normalizedId = String(id || "").trim();
+  if (!normalizedId) {
+    return normalizeDeletedEntityCollection(entries);
+  }
 
-  for (const entry of localEntries) {
-    if (entry?.id) {
-      localById.set(String(entry.id), entry);
-    }
+  return normalizeDeletedEntityCollection([
+    ...entries.filter((entry) => String(entry?.id || "").trim() !== normalizedId),
+    { id: normalizedId, deletedAt: new Date().toISOString() }
+  ]);
+}
+
+function clearDeletedEntity(entries = [], id) {
+  const normalizedId = String(id || "").trim();
+  return normalizeDeletedEntityCollection(entries).filter(
+    (entry) => String(entry?.id || "").trim() !== normalizedId
+  );
+}
+
+function remoteSettingsNeedBackfill(user, remoteSettings = {}) {
+  const localSettings = mergeSettings(user.settings);
+  const normalizedRemoteSettings = mergeSettings(remoteSettings);
+  const localBusiness = localSettings.business || {};
+  const remoteBusiness = normalizedRemoteSettings.business || {};
+  const localBranding = localSettings.branding || {};
+  const remoteBranding = normalizedRemoteSettings.branding || {};
+
+  return (
+    (String(localBusiness.companyName || "").trim() && !String(remoteBusiness.companyName || "").trim()) ||
+    (String(localBusiness.addressLine1 || "").trim() && !String(remoteBusiness.addressLine1 || "").trim()) ||
+    (String(localBusiness.city || "").trim() && !String(remoteBusiness.city || "").trim()) ||
+    (String(localBusiness.phone || "").trim() && !String(remoteBusiness.phone || "").trim()) ||
+    (String(localBusiness.email || "").trim() && !String(remoteBusiness.email || "").trim()) ||
+    (String(localBusiness.uid || "").trim() && !String(remoteBusiness.uid || "").trim()) ||
+    (localBranding.hasInvoiceLogo && localBranding.invoiceLogoDataUrl && !remoteBranding.hasInvoiceLogo)
+  );
+}
+
+function reconcileEntityCollections({
+  localEntries = [],
+  remoteEntries = [],
+  deletedEntries = [],
+  sanitize,
+  buildKey
+}) {
+  const normalizedLocal = dedupeEntities(localEntries, sanitize, buildKey);
+  const normalizedRemote = dedupeEntities(remoteEntries, sanitize, buildKey);
+  const normalizedDeleted = normalizeDeletedEntityCollection(deletedEntries);
+
+  const localById = new Map(normalizedLocal.map((entry, index) => [String(entry.id), { entry, index }]));
+  const localByKey = new Map();
+  normalizedLocal.forEach((entry) => {
     const key = buildKey(entry);
-    if (key !== "||") {
+    if (key && key !== "||") {
       localByKey.set(key, entry);
     }
-  }
-
-  let didRepairIds = false;
-  const entries = remoteEntries.map((entry) => {
-    const matchingLocal =
-      (entry?.id && localById.get(String(entry.id))) ||
-      localByKey.get(buildKey(entry));
-
-    if (!entry?.id && matchingLocal?.id) {
-      didRepairIds = true;
-      return {
-        ...entry,
-        id: matchingLocal.id
-      };
-    }
-
-    return entry;
   });
 
-  return { entries, didRepairIds };
-}
+  const deletedById = new Map(normalizedDeleted.map((entry) => [String(entry.id), entry]));
+  const nextLocal = normalizedLocal.map((entry) => ({ ...entry }));
+  const remoteUpserts = [];
+  const remoteDeletes = new Set();
+  const remoteIds = new Set();
+  const matchedLocalIds = new Set();
+  let changedLocal = normalizedLocal.length !== localEntries.length || normalizedDeleted.length !== deletedEntries.length;
 
-function remoteDataHasMissingEntityIds(remoteData = {}) {
-  const customerIdsMissing = Array.isArray(remoteData?.customers)
-    ? remoteData.customers.some((entry) => !String(entry?.id || "").trim())
-    : false;
-  const articleIdsMissing = Array.isArray(remoteData?.articles)
-    ? remoteData.articles.some((entry) => !String(entry?.id || "").trim())
-    : false;
+  for (const remoteEntry of normalizedRemote) {
+    const remoteId = String(remoteEntry.id || "").trim();
+    if (!remoteId) {
+      continue;
+    }
 
-  return customerIdsMissing || articleIdsMissing;
-}
+    remoteIds.add(remoteId);
+    if (deletedById.has(remoteId)) {
+      remoteDeletes.add(remoteId);
+      continue;
+    }
 
-function applyRemoteUserData(user, remoteData = {}) {
-  if (!remoteData || typeof remoteData !== "object") {
-    return { user, repairedIds: false };
+    let matchedLocalRecord = localById.get(remoteId);
+    let matchedByKey = false;
+    const remoteKey = buildKey(remoteEntry);
+    if (!matchedLocalRecord && remoteKey && remoteKey !== "||") {
+      const localByKeyEntry = localByKey.get(remoteKey);
+      if (localByKeyEntry) {
+        matchedLocalRecord = localById.get(String(localByKeyEntry.id));
+        matchedByKey = Boolean(matchedLocalRecord);
+      }
+    }
+
+    if (!matchedLocalRecord) {
+      nextLocal.push(remoteEntry);
+      localById.set(remoteId, { entry: remoteEntry, index: nextLocal.length - 1 });
+      if (remoteKey && remoteKey !== "||") {
+        localByKey.set(remoteKey, remoteEntry);
+      }
+      changedLocal = true;
+      continue;
+    }
+
+    const localEntry = matchedLocalRecord.entry;
+    matchedLocalIds.add(String(localEntry.id));
+
+    if (matchedByKey && remoteId !== String(localEntry.id)) {
+      remoteDeletes.add(remoteId);
+      remoteUpserts.push(localEntry);
+    }
+
+    const remoteUpdatedAt = getTimestampMs(remoteEntry.updatedAt);
+    const localUpdatedAt = getTimestampMs(localEntry.updatedAt);
+    if (remoteUpdatedAt > localUpdatedAt) {
+      const mergedRemoteEntry = sanitize({
+        ...localEntry,
+        ...remoteEntry,
+        id: localEntry.id,
+        updatedAt: remoteEntry.updatedAt
+      });
+      nextLocal[matchedLocalRecord.index] = mergedRemoteEntry;
+      localById.set(String(mergedRemoteEntry.id), {
+        entry: mergedRemoteEntry,
+        index: matchedLocalRecord.index
+      });
+      const mergedKey = buildKey(mergedRemoteEntry);
+      if (mergedKey && mergedKey !== "||") {
+        localByKey.set(mergedKey, mergedRemoteEntry);
+      }
+      changedLocal = true;
+    } else if (localUpdatedAt > remoteUpdatedAt || matchedByKey) {
+      remoteUpserts.push(localEntry);
+    }
   }
 
-  let repairedIds = false;
+  for (const localEntry of normalizedLocal) {
+    const localId = String(localEntry.id || "").trim();
+    if (!localId || deletedById.has(localId) || matchedLocalIds.has(localId)) {
+      continue;
+    }
+
+    if (!remoteIds.has(localId)) {
+      remoteUpserts.push(localEntry);
+    }
+  }
+
+  const remainingDeleted = [];
+  for (const deletedEntry of normalizedDeleted) {
+    if (!remoteIds.has(String(deletedEntry.id || "").trim())) {
+      changedLocal = true;
+      continue;
+    }
+    remainingDeleted.push(deletedEntry);
+  }
+
+  return {
+    entries: dedupeEntities(nextLocal, sanitize, buildKey),
+    deletedEntries: remainingDeleted,
+    changedLocal,
+    remoteUpserts: dedupeEntities(remoteUpserts, sanitize, buildKey),
+    remoteDeletes: [...remoteDeletes]
+  };
+}
+
+function reconcileUserWithRemoteData(user, remoteData = {}) {
+  if (!remoteData || typeof remoteData !== "object") {
+    return {
+      changedLocal: false,
+      shouldSyncSettings: false,
+      customerUpserts: [],
+      customerDeletes: [],
+      articleUpserts: [],
+      articleDeletes: []
+    };
+  }
+
+  let changedLocal = false;
+  let shouldSyncSettings = false;
+
+  const remoteSettingsUpdatedAt = normalizeTimestamp(
+    remoteData.settingsUpdatedAt || remoteData.updatedAt,
+    user.settingsUpdatedAt || user.updatedAt || new Date().toISOString()
+  );
+  const localSettingsUpdatedAt = normalizeTimestamp(
+    user.settingsUpdatedAt || user.updatedAt,
+    new Date().toISOString()
+  );
 
   if (remoteData.settings) {
     const localSettings = mergeSettings(user.settings);
@@ -933,39 +1212,60 @@ function applyRemoteUserData(user, remoteData = {}) {
       remoteSettings.branding.hasInvoiceLogo = true;
       remoteSettings.branding.invoiceLogoDataUrl = localSettings.branding.invoiceLogoDataUrl;
     }
-    user.settings = remoteSettings;
+
+    if (getTimestampMs(remoteSettingsUpdatedAt) > getTimestampMs(localSettingsUpdatedAt)) {
+      user.settings = remoteSettings;
+      user.settingsUpdatedAt = remoteSettingsUpdatedAt;
+      changedLocal = true;
+    } else if (
+      getTimestampMs(localSettingsUpdatedAt) > getTimestampMs(remoteSettingsUpdatedAt) ||
+      remoteSettingsNeedBackfill(user, remoteSettings)
+    ) {
+      shouldSyncSettings = true;
+    }
+  } else {
+    shouldSyncSettings = true;
   }
 
-  if (Array.isArray(remoteData.customers)) {
-    const mergedCustomers = mergeRemoteEntityIds(
-      remoteData.customers,
-      user.customers,
-      buildCustomerSyncKey
-    );
-    repairedIds = repairedIds || mergedCustomers.didRepairIds;
-    user.customers = mergedCustomers.entries.map((entry) => sanitizeCustomer(entry));
+  const customerResult = reconcileEntityCollections({
+    localEntries: Array.isArray(user.customers) ? user.customers : [],
+    remoteEntries: Array.isArray(remoteData.customers) ? remoteData.customers : [],
+    deletedEntries: Array.isArray(user.deletedCustomers) ? user.deletedCustomers : [],
+    sanitize: sanitizeCustomer,
+    buildKey: buildCustomerSyncKey
+  });
+  const articleResult = reconcileEntityCollections({
+    localEntries: Array.isArray(user.articles) ? user.articles : [],
+    remoteEntries: Array.isArray(remoteData.articles) ? remoteData.articles : [],
+    deletedEntries: Array.isArray(user.deletedArticles) ? user.deletedArticles : [],
+    sanitize: sanitizeArticle,
+    buildKey: buildArticleSyncKey
+  });
+
+  if (customerResult.changedLocal) {
+    user.customers = customerResult.entries;
+    user.deletedCustomers = customerResult.deletedEntries;
+    changedLocal = true;
+  }
+  if (articleResult.changedLocal) {
+    user.articles = articleResult.entries;
+    user.deletedArticles = articleResult.deletedEntries;
+    changedLocal = true;
   }
 
-  if (Array.isArray(remoteData.articles)) {
-    const mergedArticles = mergeRemoteEntityIds(
-      remoteData.articles,
-      user.articles,
-      buildArticleSyncKey
-    );
-    repairedIds = repairedIds || mergedArticles.didRepairIds;
-    user.articles = mergedArticles.entries.map((entry) => sanitizeArticle(entry));
-  }
-
-  if (remoteData.updatedAt) {
-    user.updatedAt = String(remoteData.updatedAt);
-  }
-  if (remoteData.lastActivityAt) {
-    user.lastActivityAt = String(remoteData.lastActivityAt);
-  }
-  if (remoteData.lastSeenAt) {
+  if (remoteData.lastSeenAt && !user.lastSeenAt) {
     user.lastSeenAt = String(remoteData.lastSeenAt);
+    changedLocal = true;
   }
-  return { user, repairedIds };
+
+  return {
+    changedLocal,
+    shouldSyncSettings,
+    customerUpserts: customerResult.remoteUpserts,
+    customerDeletes: customerResult.remoteDeletes,
+    articleUpserts: articleResult.remoteUpserts,
+    articleDeletes: articleResult.remoteDeletes
+  };
 }
 
 async function hydrateUserFromGoogleSheets(store, user) {
@@ -984,25 +1284,25 @@ async function hydrateUserFromGoogleSheets(store, user) {
       return user;
     }
 
-    if (remoteDataNeedsBackfill(user, response.data)) {
-      await syncUserToGoogleSheets(user);
-      return user;
+    const reconcileResult = reconcileUserWithRemoteData(user, response.data);
+    if (reconcileResult.changedLocal) {
+      await writeStore(store);
     }
-
-    const localActivity = new Date(user.lastActivityAt || user.updatedAt || 0).getTime();
-    const remoteActivity = new Date(
-      response.data.lastActivityAt || response.data.updatedAt || 0
-    ).getTime();
-    if (localActivity > remoteActivity) {
-      await syncUserToGoogleSheets(user);
-      return user;
+    if (reconcileResult.shouldSyncSettings) {
+      queueGoogleSheetsSettingsSync(user);
     }
-
-    const shouldRepairRemoteIds = remoteDataHasMissingEntityIds(response.data);
-    const applyResult = applyRemoteUserData(user, response.data);
-    await writeStore(store);
-    if (shouldRepairRemoteIds || applyResult.repairedIds) {
-      await syncUserToGoogleSheets(user);
+    if (
+      reconcileResult.customerUpserts.length ||
+      reconcileResult.customerDeletes.length ||
+      reconcileResult.articleUpserts.length ||
+      reconcileResult.articleDeletes.length
+    ) {
+      queueGoogleSheetsEntitySync(store, user, {
+        customersUpsert: reconcileResult.customerUpserts,
+        customersDelete: reconcileResult.customerDeletes,
+        articlesUpsert: reconcileResult.articleUpserts,
+        articlesDelete: reconcileResult.articleDeletes
+      });
     }
   } catch (error) {
     console.error(`Google-Sheets-Import fehlgeschlagen (${user.username}).`, error);
@@ -1017,9 +1317,15 @@ async function syncUserToGoogleSheets(user) {
   }
 
   try {
-    await requestGoogleSheetsSync("upsertUserData", {
+    await syncUserSettingsToGoogleSheets(user);
+    await requestGoogleSheetsSync("syncUserEntities", {
       username: user.username,
-      data: buildSheetSyncPayload(user)
+      data: {
+        customersUpsert: normalizeCustomerCollection(user.customers),
+        customersDelete: normalizeDeletedEntityCollection(user.deletedCustomers).map((entry) => entry.id),
+        articlesUpsert: normalizeArticleCollection(user.articles),
+        articlesDelete: normalizeDeletedEntityCollection(user.deletedArticles).map((entry) => entry.id)
+      }
     });
   } catch (error) {
     console.error(`Google-Sheets-Sync fehlgeschlagen (${user.username}).`, error);
@@ -1042,44 +1348,31 @@ async function syncUserSettingsToGoogleSheets(user) {
 }
 
 function remoteDataNeedsBackfill(user, remoteData = {}) {
-  const localCustomerCount = Array.isArray(user?.customers) ? user.customers.length : 0;
-  const localArticleCount = Array.isArray(user?.articles) ? user.articles.length : 0;
-  const remoteCustomerCount = Array.isArray(remoteData?.customers) ? remoteData.customers.length : 0;
-  const remoteArticleCount = Array.isArray(remoteData?.articles) ? remoteData.articles.length : 0;
-  const localBusiness = user?.settings?.business || {};
-  const remoteBusiness = remoteData?.settings?.business || {};
-  const localBusinessFilled = [
-    localBusiness.companyName,
-    localBusiness.addressLine1,
-    localBusiness.postalCode,
-    localBusiness.city,
-    localBusiness.phone,
-    localBusiness.email,
-    localBusiness.uid,
-    localBusiness.iban,
-    localBusiness.bic,
-    localBusiness.bankName,
-    localBusiness.issuerName
-  ].some((value) => String(value || "").trim());
-  const remoteBusinessFilled = [
-    remoteBusiness.companyName,
-    remoteBusiness.addressLine1,
-    remoteBusiness.postalCode,
-    remoteBusiness.city,
-    remoteBusiness.phone,
-    remoteBusiness.email,
-    remoteBusiness.uid,
-    remoteBusiness.iban,
-    remoteBusiness.bic,
-    remoteBusiness.bankName,
-    remoteBusiness.issuerName
-  ].some((value) => String(value || "").trim());
+  const reconcilePreview = reconcileUserWithRemoteData(createUserRecord({
+    ...user,
+    customers: user.customers,
+    articles: user.articles,
+    deletedCustomers: user.deletedCustomers,
+    deletedArticles: user.deletedArticles,
+    settingsUpdatedAt: user.settingsUpdatedAt
+  }), remoteData);
 
   return (
-    (localBusinessFilled && !remoteBusinessFilled) ||
-    (localCustomerCount > 0 && remoteCustomerCount < localCustomerCount) ||
-    (localArticleCount > 0 && remoteArticleCount < localArticleCount)
+    reconcilePreview.shouldSyncSettings ||
+    reconcilePreview.customerUpserts.length > 0 ||
+    reconcilePreview.customerDeletes.length > 0 ||
+    reconcilePreview.articleUpserts.length > 0 ||
+    reconcilePreview.articleDeletes.length > 0
   );
+}
+
+function buildEntitySyncBatchPayload(batch = {}) {
+  return {
+    customersUpsert: normalizeCustomerCollection(batch.customersUpsert),
+    customersDelete: [...new Set((batch.customersDelete || []).map((entry) => String(entry || "").trim()).filter(Boolean))],
+    articlesUpsert: normalizeArticleCollection(batch.articlesUpsert),
+    articlesDelete: [...new Set((batch.articlesDelete || []).map((entry) => String(entry || "").trim()).filter(Boolean))]
+  };
 }
 
 async function backfillImportedUsersToGoogleSheets(store) {
@@ -1127,7 +1420,7 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
     const response = await requestGoogleSheetsSync("getUserData", { username: normalizedUsername });
     if (!response?.ok || !response.data) {
       if (user) {
-        queueGoogleSheetsSync(user);
+        queueGoogleSheetsSettingsSync(user);
       }
       return user;
     }
@@ -1136,21 +1429,10 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
     const remotePassword = String(remoteData?.settings?.auth?.password || "admin");
 
     if (user) {
-      const localActivity = new Date(user.lastActivityAt || user.updatedAt || 0).getTime();
-      const remoteActivity = new Date(
-        remoteData.lastActivityAt || remoteData.updatedAt || 0
-      ).getTime();
-      const shouldBackfillRemote = remoteDataNeedsBackfill(user, remoteData);
-
-      if (shouldBackfillRemote || localActivity > remoteActivity) {
-        queueGoogleSheetsSync(user);
-        return user;
-      }
-
-      const applyResult = applyRemoteUserData(user, remoteData);
+      const reconcileResult = reconcileUserWithRemoteData(user, remoteData);
       user.settings = mergeSettings({
         ...user.settings,
-        ...remoteData.settings,
+        ...(reconcileResult.shouldSyncSettings ? user.settings : remoteData.settings),
         auth: {
           ...(user.settings?.auth || {}),
           ...(remoteData.settings?.auth || {}),
@@ -1164,24 +1446,38 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
           adminPasswordVersion:
             normalizedUsername === "admin"
               ? 1
-              : Number(remoteData?.settings?.auth?.adminPasswordVersion || user.settings?.auth?.adminPasswordVersion || 0)
+              : Number(
+                  remoteData?.settings?.auth?.adminPasswordVersion ||
+                    user.settings?.auth?.adminPasswordVersion ||
+                    0
+                )
         }
       });
       user.passwordHash = hashPassword(remotePassword);
       if (remoteData.createdAt && !user.createdAt) {
         user.createdAt = String(remoteData.createdAt);
       }
-      if (remoteData.updatedAt) {
-        user.updatedAt = String(remoteData.updatedAt);
-      }
-      if (remoteData.lastActivityAt) {
-        user.lastActivityAt = String(remoteData.lastActivityAt);
+      if (remoteData.settingsUpdatedAt && !reconcileResult.shouldSyncSettings) {
+        user.settingsUpdatedAt = String(remoteData.settingsUpdatedAt);
       }
       if (remoteData.lastSeenAt) {
         user.lastSeenAt = String(remoteData.lastSeenAt);
       }
-      if (applyResult.repairedIds) {
-        await syncUserToGoogleSheets(user);
+      if (reconcileResult.shouldSyncSettings) {
+        queueGoogleSheetsSettingsSync(user);
+      }
+      if (
+        reconcileResult.customerUpserts.length ||
+        reconcileResult.customerDeletes.length ||
+        reconcileResult.articleUpserts.length ||
+        reconcileResult.articleDeletes.length
+      ) {
+        queueGoogleSheetsEntitySync(store, user, {
+          customersUpsert: reconcileResult.customerUpserts,
+          customersDelete: reconcileResult.customerDeletes,
+          articlesUpsert: reconcileResult.articleUpserts,
+          articlesDelete: reconcileResult.articleDeletes
+        });
       }
     } else {
       user = applySeedDataIfNeeded(
@@ -1194,6 +1490,7 @@ async function syncUserFromGoogleSheetsIntoStore(store, username) {
           invoices: Array.isArray(remoteData.invoices) ? remoteData.invoices : [],
           createdAt: remoteData.createdAt || remoteData.updatedAt,
           updatedAt: remoteData.updatedAt,
+          settingsUpdatedAt: remoteData.settingsUpdatedAt || remoteData.updatedAt,
           lastActivityAt: remoteData.lastActivityAt || remoteData.updatedAt,
           lastSeenAt: remoteData.lastSeenAt
         })
@@ -1269,13 +1566,13 @@ function buildAdminUsersLocalResponse(store) {
     .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
 }
 
-function queueGoogleSheetsSync(user) {
+function queueGoogleSheetsSettingsSync(user) {
   if (!isGoogleSheetsSyncConfigured() || !user?.username) {
     return;
   }
 
   const username = String(user.username).trim();
-  pendingGoogleSheetSyncPayloads.set(username, buildSheetSyncPayload(user));
+  pendingGoogleSheetSyncPayloads.set(username, buildSettingsSyncPayload(user));
 
   if (activeGoogleSheetSyncUsers.has(username)) {
     return;
@@ -1290,18 +1587,110 @@ function queueGoogleSheetsSync(user) {
         pendingGoogleSheetSyncPayloads.delete(username);
 
         try {
-          await requestGoogleSheetsSync("upsertUserData", {
+          await requestGoogleSheetsSync("upsertUserSettings", {
             username,
             data: payload
           });
         } catch (error) {
-          console.error(`Google-Sheets-Hintergrundsync fehlgeschlagen (${username}).`, error);
+          console.error(`Google-Sheets-Settings-Hintergrundsync fehlgeschlagen (${username}).`, error);
         }
       }
     } finally {
       activeGoogleSheetSyncUsers.delete(username);
       if (pendingGoogleSheetSyncPayloads.has(username)) {
-        queueGoogleSheetsSync(user);
+        queueGoogleSheetsSettingsSync(user);
+      }
+    }
+  }, 0);
+}
+
+function queueGoogleSheetsEntitySync(store, user, batch = {}) {
+  if (!isGoogleSheetsSyncConfigured() || !user?.username) {
+    return;
+  }
+
+  const username = String(user.username).trim();
+  const nextBatch = buildEntitySyncBatchPayload(batch);
+  const existingPendingBatch = pendingGoogleSheetEntitySyncs.get(username);
+  if (
+    !nextBatch.customersUpsert.length &&
+    !nextBatch.customersDelete.length &&
+    !nextBatch.articlesUpsert.length &&
+    !nextBatch.articlesDelete.length &&
+    !existingPendingBatch
+  ) {
+    return;
+  }
+
+  const pendingBatch = existingPendingBatch || {
+    customersUpsert: new Map(),
+    customersDelete: new Set(),
+    articlesUpsert: new Map(),
+    articlesDelete: new Set()
+  };
+
+  nextBatch.customersUpsert.forEach((entry) => {
+    pendingBatch.customersUpsert.set(String(entry.id), entry);
+    pendingBatch.customersDelete.delete(String(entry.id));
+  });
+  nextBatch.customersDelete.forEach((id) => {
+    pendingBatch.customersUpsert.delete(String(id));
+    pendingBatch.customersDelete.add(String(id));
+  });
+  nextBatch.articlesUpsert.forEach((entry) => {
+    pendingBatch.articlesUpsert.set(String(entry.id), entry);
+    pendingBatch.articlesDelete.delete(String(entry.id));
+  });
+  nextBatch.articlesDelete.forEach((id) => {
+    pendingBatch.articlesUpsert.delete(String(id));
+    pendingBatch.articlesDelete.add(String(id));
+  });
+
+  pendingGoogleSheetEntitySyncs.set(username, pendingBatch);
+
+  if (activeGoogleSheetEntitySyncUsers.has(username)) {
+    return;
+  }
+
+  activeGoogleSheetEntitySyncUsers.add(username);
+
+  setTimeout(async () => {
+    try {
+      while (pendingGoogleSheetEntitySyncs.has(username)) {
+        const currentBatch = pendingGoogleSheetEntitySyncs.get(username);
+        pendingGoogleSheetEntitySyncs.delete(username);
+
+        const payload = {
+          customersUpsert: [...currentBatch.customersUpsert.values()],
+          customersDelete: [...currentBatch.customersDelete.values()],
+          articlesUpsert: [...currentBatch.articlesUpsert.values()],
+          articlesDelete: [...currentBatch.articlesDelete.values()]
+        };
+
+        try {
+          await requestGoogleSheetsSync("syncUserEntities", {
+            username,
+            data: payload
+          });
+
+          if (store && findUserByUsername(store, username)) {
+            const syncedUser = findUserByUsername(store, username);
+            syncedUser.deletedCustomers = normalizeDeletedEntityCollection(
+              syncedUser.deletedCustomers
+            ).filter((entry) => !payload.customersDelete.includes(String(entry.id)));
+            syncedUser.deletedArticles = normalizeDeletedEntityCollection(
+              syncedUser.deletedArticles
+            ).filter((entry) => !payload.articlesDelete.includes(String(entry.id)));
+            await writeStore(store);
+          }
+        } catch (error) {
+          console.error(`Google-Sheets-Entity-Hintergrundsync fehlgeschlagen (${username}).`, error);
+        }
+      }
+    } finally {
+      activeGoogleSheetEntitySyncUsers.delete(username);
+      if (pendingGoogleSheetEntitySyncs.has(username)) {
+        queueGoogleSheetsEntitySync(store, user);
       }
     }
   }, 0);
@@ -2070,7 +2459,7 @@ app.post("/api/auth/login", async (req, res, next) => {
     markUserSeen(user);
     const session = createSession(store, user.id);
     await writeStore(store);
-    queueGoogleSheetsSync(user);
+    queueGoogleSheetsSettingsSync(user);
     res.json({ ok: true, username: user.username, token: session.token });
   } catch (error) {
     next(error);
@@ -2081,7 +2470,7 @@ app.get("/api/auth/session", requireAuth, async (req, res, next) => {
   try {
     markUserSeen(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
+    queueGoogleSheetsSettingsSync(req.user);
     res.json({ ok: true, username: req.user.username });
   } catch (error) {
     next(error);
@@ -2139,7 +2528,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
       defaultUserPassword: defaultPassword,
       adminPasswordVersion: 1
     };
-    markUserActivity(req.user);
+    markUserSettingsUpdated(req.user);
     const newUser = createUserRecord({
       username,
       password: defaultPassword,
@@ -2189,10 +2578,10 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
       username: user.username,
       password: defaultPassword
     };
-    markUserUpdated(user);
+    markUserSettingsUpdated(user);
 
     await writeStore(req.store);
-    queueGoogleSheetsSync(user);
+    queueGoogleSheetsSettingsSync(user);
 
     res.json({
       ok: true,
@@ -2219,10 +2608,10 @@ app.post("/api/auth/password", requireAuth, async (req, res, next) => {
       password,
       adminPasswordVersion: req.user.username === "admin" ? 1 : Number(req.user.settings.auth?.adminPasswordVersion || 0)
     };
-    markUserActivity(req.user);
+    markUserSettingsUpdated(req.user);
 
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
+    queueGoogleSheetsSettingsSync(req.user);
 
     res.json({
       ok: true,
@@ -2286,10 +2675,10 @@ app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, r
       defaultUserPassword: password,
       adminPasswordVersion: 1
     };
-    markUserActivity(req.user);
+    markUserSettingsUpdated(req.user);
 
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
+    queueGoogleSheetsSettingsSync(req.user);
 
     res.json({
       ok: true,
@@ -2304,7 +2693,7 @@ app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, r
 app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
   try {
     await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
-    markUserActivity(req.user);
+    markUserSettingsUpdated(req.user);
     await writeStore(req.store);
     await syncUserSettingsToGoogleSheets(req.user);
     res.status(201).json({ ok: true, settings: getUserSettingsForClient(req.user) });
@@ -2316,7 +2705,7 @@ app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
 app.delete("/api/assets/logo/:kind", requireAuth, async (req, res, next) => {
   try {
     await removeLogoAsset(req.user, String(req.params.kind || "").trim());
-    markUserActivity(req.user);
+    markUserSettingsUpdated(req.user);
     await writeStore(req.store);
     await syncUserSettingsToGoogleSheets(req.user);
     res.json({ ok: true, settings: getUserSettingsForClient(req.user) });
@@ -2359,7 +2748,7 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     if (incoming.auth?.password) {
       currentUser.passwordHash = hashPassword(String(incoming.auth.password));
     }
-    markUserActivity(currentUser);
+    markUserSettingsUpdated(currentUser);
 
     await writeStore(req.store);
     await syncUserSettingsToGoogleSheets(currentUser);
@@ -2381,10 +2770,18 @@ app.post("/api/customers", requireAuth, async (req, res, next) => {
     }
 
     req.user.customers.push(customer);
+    req.user.customers = normalizeCustomerCollection(req.user.customers);
+    const storedCustomer =
+      req.user.customers.find((entry) => String(entry.id) === String(customer.id)) ||
+      req.user.customers.find((entry) => buildCustomerSyncKey(entry) === buildCustomerSyncKey(customer)) ||
+      customer;
+    req.user.deletedCustomers = clearDeletedEntity(req.user.deletedCustomers, customer.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    res.status(201).json({ customer });
+    queueGoogleSheetsEntitySync(req.store, req.user, {
+      customersUpsert: [storedCustomer]
+    });
+    res.status(201).json({ customer: storedCustomer });
   } catch (error) {
     next(error);
   }
@@ -2402,12 +2799,21 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
     req.user.customers[index] = sanitizeCustomer({
       ...req.user.customers[index],
       ...customerInput,
-      id: req.user.customers[index].id
+      id: req.user.customers[index].id,
+      updatedAt: new Date().toISOString()
     });
+    req.user.customers = normalizeCustomerCollection(req.user.customers);
+    const updatedCustomer =
+      req.user.customers.find((entry) => String(entry.id) === String(req.params.id)) ||
+      req.user.customers.find((entry) => buildCustomerSyncKey(entry) === buildCustomerSyncKey(customerInput)) ||
+      sanitizeCustomer({ ...customerInput, id: req.params.id });
+    req.user.deletedCustomers = clearDeletedEntity(req.user.deletedCustomers, updatedCustomer.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    res.json({ customer: req.user.customers[index] });
+    queueGoogleSheetsEntitySync(req.store, req.user, {
+      customersUpsert: [updatedCustomer]
+    });
+    res.json({ customer: updatedCustomer });
   } catch (error) {
     next(error);
   }
@@ -2415,10 +2821,16 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
 
 app.delete("/api/customers/:id", requireAuth, async (req, res, next) => {
   try {
-    req.user.customers = req.user.customers.filter((entry) => entry.id !== req.params.id);
+    const customerId = String(req.params.id || "").trim();
+    req.user.customers = normalizeCustomerCollection(req.user.customers).filter(
+      (entry) => String(entry.id || "").trim() !== customerId
+    );
+    req.user.deletedCustomers = registerDeletedEntity(req.user.deletedCustomers, customerId);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
+    queueGoogleSheetsEntitySync(req.store, req.user, {
+      customersDelete: [customerId]
+    });
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -2437,10 +2849,18 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
     }
 
     req.user.articles.push(article);
+    req.user.articles = normalizeArticleCollection(req.user.articles);
+    const storedArticle =
+      req.user.articles.find((entry) => String(entry.id) === String(article.id)) ||
+      req.user.articles.find((entry) => buildArticleSyncKey(entry) === buildArticleSyncKey(article)) ||
+      article;
+    req.user.deletedArticles = clearDeletedEntity(req.user.deletedArticles, article.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    res.status(201).json({ article });
+    queueGoogleSheetsEntitySync(req.store, req.user, {
+      articlesUpsert: [storedArticle]
+    });
+    res.status(201).json({ article: storedArticle });
   } catch (error) {
     next(error);
   }
@@ -2448,7 +2868,8 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
 
 app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
   try {
-    const index = req.user.articles.findIndex((entry) => entry.id === req.params.id);
+    const articleInput = req.body?.article || req.body;
+    const index = findArticleIndexByIdOrPayload(req.user.articles, req.params.id, articleInput);
     if (index === -1) {
       res.status(404).json({ error: "Artikel nicht gefunden." });
       return;
@@ -2456,13 +2877,22 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
 
     req.user.articles[index] = sanitizeArticle({
       ...req.user.articles[index],
-      ...(req.body?.article || req.body),
-      id: req.params.id
+      ...articleInput,
+      id: req.user.articles[index].id,
+      updatedAt: new Date().toISOString()
     });
+    req.user.articles = normalizeArticleCollection(req.user.articles);
+    const updatedArticle =
+      req.user.articles.find((entry) => String(entry.id) === String(req.params.id)) ||
+      req.user.articles.find((entry) => buildArticleSyncKey(entry) === buildArticleSyncKey(articleInput)) ||
+      sanitizeArticle({ ...articleInput, id: req.params.id });
+    req.user.deletedArticles = clearDeletedEntity(req.user.deletedArticles, updatedArticle.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
-    res.json({ article: req.user.articles[index] });
+    queueGoogleSheetsEntitySync(req.store, req.user, {
+      articlesUpsert: [updatedArticle]
+    });
+    res.json({ article: updatedArticle });
   } catch (error) {
     next(error);
   }
@@ -2470,10 +2900,16 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
 
 app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
   try {
-    req.user.articles = req.user.articles.filter((entry) => entry.id !== req.params.id);
+    const articleId = String(req.params.id || "").trim();
+    req.user.articles = normalizeArticleCollection(req.user.articles).filter(
+      (entry) => String(entry.id || "").trim() !== articleId
+    );
+    req.user.deletedArticles = registerDeletedEntity(req.user.deletedArticles, articleId);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSync(req.user);
+    queueGoogleSheetsEntitySync(req.store, req.user, {
+      articlesDelete: [articleId]
+    });
     res.status(204).end();
   } catch (error) {
     next(error);

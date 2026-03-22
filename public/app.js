@@ -1161,7 +1161,16 @@ function loadImage(src) {
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = reject;
-    const url = new URL(String(src), window.location.origin);
+    const normalizedSrc = String(src || "");
+    if (
+      normalizedSrc.startsWith("data:image/") ||
+      normalizedSrc.startsWith("blob:") ||
+      normalizedSrc.startsWith("file:")
+    ) {
+      image.src = normalizedSrc;
+      return;
+    }
+    const url = new URL(normalizedSrc, window.location.origin);
     url.searchParams.set("cb", String(Date.now()));
     image.src = url.toString();
   });
@@ -1348,24 +1357,8 @@ async function loadLogo() {
       logoState.loaded = true;
       return logoState.image;
     } catch {
-      // Fallback auf Server-Asset.
+      // Kein lokal lesbares Rechnungslogo vorhanden.
     }
-  }
-
-  if (!state.settings?.branding?.hasInvoiceLogo) {
-    logoState.loaded = true;
-    return null;
-  }
-
-  try {
-    const serverLogoDataUrl = await fetchImageAsDataUrl(getBrandAssetUrl("invoice"));
-    setBrandingLogoState("invoice", serverLogoDataUrl);
-    await persistInvoiceLogoToDeviceCache(serverLogoDataUrl);
-    logoState.image = await loadImage(serverLogoDataUrl);
-    logoState.loaded = true;
-    return logoState.image;
-  } catch {
-    // Kein Rechnungslogo vorhanden.
   }
 
   logoState.loaded = true;
@@ -1404,9 +1397,28 @@ function applyReceivedSettings(settings) {
     return;
   }
 
-  state.settings = normalizeLegacyData(settings);
-  state.auth.username = settings.auth?.username || state.auth.username;
-  hydrateInvoiceLogoFromLocalCache(state.settings?.auth?.username || state.auth.username);
+  const previousSettings = normalizeLegacyData(state.settings || {});
+  const incomingSettings = normalizeLegacyData(settings);
+  const resolvedUsername =
+    incomingSettings?.auth?.username || previousSettings?.auth?.username || state.auth.username;
+  const persistedInvoiceLogo =
+    String(previousSettings?.branding?.invoiceLogoDataUrl || "") ||
+    readPersistedInvoiceLogo(resolvedUsername);
+
+  state.settings = {
+    ...previousSettings,
+    ...incomingSettings,
+    branding: {
+      ...(previousSettings?.branding || {}),
+      ...(incomingSettings?.branding || {}),
+      invoiceLogoDataUrl:
+        String(incomingSettings?.branding?.invoiceLogoDataUrl || "") ||
+        persistedInvoiceLogo ||
+        ""
+    }
+  };
+  state.auth.username = resolvedUsername || state.auth.username;
+  hydrateInvoiceLogoFromLocalCache(resolvedUsername || state.auth.username);
 }
 
 function populateSettingsForm() {
@@ -1720,7 +1732,7 @@ function refreshBrandAssets() {
   const invoiceDataUrl = getBrandingLogoDataUrl("invoice");
   const persistedInvoiceDataUrl = readPersistedInvoiceLogo();
   const appDataUrl = getBrandingLogoDataUrl("app");
-  const invoiceUrl = invoiceDataUrl || persistedInvoiceDataUrl || getBrandAssetUrl("invoice");
+  const invoiceUrl = invoiceDataUrl || persistedInvoiceDataUrl || "";
   const appUrl = appDataUrl || getBrandAssetUrl("app");
   const hasInvoiceLogo =
     Boolean(state.settings?.branding?.hasInvoiceLogo) ||
@@ -1738,7 +1750,7 @@ function refreshBrandAssets() {
     const kind = image.dataset.settingsLogoPreview;
     const hasLogo = kind === "invoice" ? hasInvoiceLogo : hasAppLogo;
     const url = kind === "invoice" ? invoiceUrl : appUrl;
-    image.hidden = !hasLogo;
+    image.hidden = !hasLogo || !url;
     image.src = hasLogo ? url : "";
   });
 
@@ -1940,7 +1952,14 @@ async function saveSelectedLogo(kind, file) {
         }
       });
       if (kind === "invoice") {
-        await persistInvoiceLogoToDeviceCache(state.settings?.branding?.invoiceLogoDataUrl || "");
+        setBrandingLogoState("invoice", imageDataUrl);
+        state.settings = state.settings || {};
+        state.settings.branding = {
+          ...(state.settings?.branding || {}),
+          hasInvoiceLogo: true,
+          invoiceLogoDataUrl: imageDataUrl
+        };
+        await persistInvoiceLogoToDeviceCache(imageDataUrl);
       }
     }
 

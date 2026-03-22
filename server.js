@@ -1947,6 +1947,14 @@ async function saveLogoAsset(user, kind, imageDataUrl) {
     throw new Error("Logo muss als PNG-Bild hochgeladen werden.");
   }
 
+  if (kind === "invoice") {
+    user.settings.branding = {
+      ...(user.settings.branding || {}),
+      hasInvoiceLogo: true
+    };
+    return;
+  }
+
   const imageBuffer = Buffer.from(String(imageDataUrl).split(",")[1] || "", "base64");
 
   await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });

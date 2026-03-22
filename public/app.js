@@ -254,6 +254,7 @@ const resetCustomerFormButton = document.getElementById("resetCustomerForm");
 const resetArticleFormButton = document.getElementById("resetArticleForm");
 const saveCustomerButton = document.getElementById("saveCustomerButton");
 const saveArticleButton = document.getElementById("saveArticleButton");
+const articleNumberFeedback = document.getElementById("articleNumberFeedback");
 const articleGroupSuggestions = document.getElementById("articleGroupSuggestions");
 
 const customerFields = {
@@ -297,6 +298,7 @@ const settingsFields = {
   bic: settingsForm.elements.namedItem("bic"),
   issuerName: settingsForm.elements.namedItem("issuerName"),
   paymentNote: settingsForm.elements.namedItem("paymentNote"),
+  paymentNoteNoTax: settingsForm.elements.namedItem("paymentNoteNoTax"),
   footerNote: settingsForm.elements.namedItem("footerNote"),
   invoiceTitle: settingsForm.elements.namedItem("invoiceTitle"),
   counterValue: settingsForm.elements.namedItem("counterValue"),
@@ -1435,6 +1437,8 @@ function populateSettingsForm() {
   settingsFields.bic.value = business.bic || "";
   settingsFields.issuerName.value = business.issuerName || "";
   settingsFields.paymentNote.value = business.paymentNote || "Fällig innerhalb von 14 Tagen ohne Abzug.";
+  settingsFields.paymentNoteNoTax.value =
+    business.paymentNoteNoTax || "Gemäß §6 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet";
   settingsFields.footerNote.value = business.footerNote || "";
   settingsFields.invoiceTitle.value = invoice.title || "Rechnung";
   settingsFields.counterValue.value = invoice.counterValue ?? 0;
@@ -1479,6 +1483,7 @@ function readSettingsForm() {
       bic: settingsFields.bic.value.trim(),
       issuerName: settingsFields.issuerName.value.trim(),
       paymentNote: settingsFields.paymentNote.value.trim(),
+      paymentNoteNoTax: settingsFields.paymentNoteNoTax.value.trim(),
       footerNote: settingsFields.footerNote.value.trim()
     },
     auth: {
@@ -1516,6 +1521,7 @@ function getComparableSettingsPayload(settings = readSettingsForm()) {
       bic: String(normalized?.business?.bic || "").trim(),
       issuerName: String(normalized?.business?.issuerName || "").trim(),
       paymentNote: String(normalized?.business?.paymentNote || "").trim(),
+      paymentNoteNoTax: String(normalized?.business?.paymentNoteNoTax || "").trim(),
       footerNote: String(normalized?.business?.footerNote || "").trim()
     },
     auth: {
@@ -1776,6 +1782,21 @@ function getBrandAssetUrl(kind) {
 
 function fileToPngDataUrl(file) {
   return new Promise((resolve, reject) => {
+    if (String(file?.type || "").toLowerCase() === "image/png") {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = String(reader.result || "");
+        if (!result.startsWith("data:image/png;base64,")) {
+          reject(new Error("PNG-Datei konnte nicht gelesen werden."));
+          return;
+        }
+        resolve(result);
+      };
+      reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden."));
+      reader.readAsDataURL(file);
+      return;
+    }
+
     const imageUrl = URL.createObjectURL(file);
     const image = new Image();
 
@@ -1791,6 +1812,8 @@ function fileToPngDataUrl(file) {
       }
 
       context.clearRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
       context.drawImage(image, 0, 0);
       URL.revokeObjectURL(imageUrl);
       resolve(canvas.toDataURL("image/png"));
@@ -2157,6 +2180,35 @@ function readArticleForm() {
   };
 }
 
+function findDuplicateArticleNumber(number = "", currentId = "") {
+  const normalizedNumber = String(number || "").trim().toLowerCase();
+  const normalizedCurrentId = String(currentId || "").trim();
+  if (!normalizedNumber) {
+    return null;
+  }
+
+  return state.articles.find((entry) => {
+    const entryNumber = String(entry.number || "").trim().toLowerCase();
+    const entryId = String(entry.id || "").trim();
+    return entryNumber === normalizedNumber && entryId !== normalizedCurrentId;
+  }) || null;
+}
+
+function updateArticleNumberValidation() {
+  const duplicate = findDuplicateArticleNumber(articleFields.number?.value, articleFields.id?.value);
+  const hasDuplicate = Boolean(duplicate);
+
+  articleFields.number?.classList.toggle("is-invalid", hasDuplicate);
+  if (articleNumberFeedback) {
+    articleNumberFeedback.textContent = hasDuplicate
+      ? `Diese Artikel-Nr. ist bereits vergeben${duplicate?.name ? ` (${duplicate.name})` : ""}.`
+      : "";
+    articleNumberFeedback.classList.toggle("is-error", hasDuplicate);
+  }
+
+  return !hasDuplicate;
+}
+
 function getComparableArticleFormPayload(article = readArticleForm()) {
   return {
     id: String(article.id || "").trim(),
@@ -2191,10 +2243,11 @@ function updateArticleFormActionVisibility() {
   if (!saveArticleButton || !resetArticleFormButton) {
     return;
   }
+  const articleNumberIsValid = updateArticleNumberValidation();
   const hasChanged =
     stableSerialize(getComparableArticleFormPayload()) !== stableSerialize(getSavedArticleFormPayload());
   saveArticleButton.hidden = !hasChanged;
-  saveArticleButton.disabled = !hasChanged;
+  saveArticleButton.disabled = !hasChanged || !articleNumberIsValid;
   resetArticleFormButton.hidden = !hasChanged;
 }
 
@@ -2744,31 +2797,56 @@ function previewInvoiceNumber() {
   return `${issueYear}-${String(nextCounter).padStart(5, "0")}`;
 }
 
+function measureWrappedTextLines(context, text, maxWidth, maxLines = Infinity) {
+  const paragraphs = String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const lines = [];
+
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    const words = String(paragraph || "").split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push("");
+      return;
+    }
+
+    let line = "";
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (context.measureText(candidate).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+        if (lines.length >= maxLines) {
+          return;
+        }
+      } else {
+        line = candidate;
+      }
+    }
+
+    if (lines.length < maxLines) {
+      lines.push(line);
+    }
+
+    if (paragraphIndex < paragraphs.length - 1 && lines.length < maxLines && !String(paragraph || "").trim()) {
+      lines.push("");
+    }
+  });
+
+  return lines.slice(0, maxLines);
+}
+
 function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
-  const words = String(text || "").split(/\s+/).filter(Boolean);
-  if (!words.length) {
+  const lines = measureWrappedTextLines(context, text, maxWidth, maxLines);
+  if (!lines.length) {
     return 0;
   }
 
-  let line = "";
-  let lineCount = 0;
+  lines.forEach((line, index) => {
+    context.fillText(line, x, y + index * lineHeight);
+  });
 
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (context.measureText(candidate).width > maxWidth && line) {
-      context.fillText(line, x, y + lineCount * lineHeight);
-      line = word;
-      lineCount += 1;
-      if (lineCount >= maxLines) {
-        return lineCount * lineHeight;
-      }
-    } else {
-      line = candidate;
-    }
-  }
-
-  context.fillText(line, x, y + lineCount * lineHeight);
-  return (lineCount + 1) * lineHeight;
+  return lines.length * lineHeight;
 }
 
 function drawFallbackLayout(context, headerShift = 0) {
@@ -2927,10 +3005,30 @@ async function renderCanvas() {
   const firstPageItemsStart = Math.max(firstPageTableOffset, invoiceMetaBottom + 8) + 62;
   const continuationItemsStart = 132;
   const nonLastPageItemsEnd = FOOTER_LINE_Y - 24;
-  const lastPageReservedHeight =
-    430
-    + (business.footerNote ? 36 : 0)
-    + (state.invoiceDraft.notes ? 18 : 0);
+  const hasDiscountTotal = totals.discountTotal > 0;
+  const hasTaxTotal = Math.abs(totals.taxTotal) > 0.004;
+  const defaultPaymentNote = "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.";
+  const defaultNoTaxPaymentNote = "Gem\u00E4\u00DF \u00A76 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet";
+  const paymentNote = business.paymentNote || defaultPaymentNote;
+  const paymentNoteNoTax = business.paymentNoteNoTax || defaultNoTaxPaymentNote;
+  canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+  const paymentLines = [
+    `F\u00E4llig am: ${formatDate(state.invoiceDraft.dueDate)}`,
+    paymentNote,
+    !hasTaxTotal ? paymentNoteNoTax : "",
+    state.invoiceDraft.notes || ""
+  ].filter(Boolean);
+  const paymentBlockReserve = paymentLines.reduce((height, line) => {
+    const wrappedHeight = measureWrappedTextLines(canvasContext, line, 560, 5).length * 18;
+    return height + Math.max(22, wrappedHeight + 4);
+  }, 0);
+  const footerBlockReserve = business.footerNote
+    ? Math.max(36, measureWrappedTextLines(canvasContext, business.footerNote, 610, 5).length * 18)
+    : 0;
+  const totalsBlockReserve = hasTaxTotal
+    ? (hasDiscountTotal ? 174 : 126)
+    : (hasDiscountTotal ? 150 : 102);
+  const lastPageReservedHeight = 118 + totalsBlockReserve + paymentBlockReserve + footerBlockReserve;
   const firstPageLastItemsEnd = PAGE_HEIGHT - lastPageReservedHeight;
   const continuationLastItemsEnd = PAGE_HEIGHT - lastPageReservedHeight;
 
@@ -3003,6 +3101,8 @@ async function renderCanvas() {
     const maxWidth = 180;
     const maxHeight = 78;
     const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height, 1);
+    canvasContext.imageSmoothingEnabled = true;
+    canvasContext.imageSmoothingQuality = "high";
     canvasContext.drawImage(logo, 66, 46, logo.width * ratio, logo.height * ratio);
   }
 
@@ -3203,17 +3303,30 @@ async function renderCanvas() {
     canvasContext.fillText(value, 734, y);
   };
 
-  const hasDiscountTotal = totals.discountTotal > 0;
   const preDiscountSubtotal = roundCurrency(totals.subtotal + totals.discountTotal);
-  const taxLineY = totalsStartY + (hasDiscountTotal ? 72 : 24);
-  const totalLineY = totalsStartY + (hasDiscountTotal ? 108 : 60);
-  const totalDividerY = totalsStartY + (hasDiscountTotal ? 92 : 44);
-  drawAmountLine(hasDiscountTotal ? "Zwischensumme (Netto)" : "Netto", formatAmount(hasDiscountTotal ? preDiscountSubtotal : totals.subtotal), totalsStartY);
+  let amountCursorY = totalsStartY;
+
   if (hasDiscountTotal) {
-    drawAmountLine("Rabatt-Abzug", `- ${formatAmount(totals.discountTotal)}`, totalsStartY + 24);
-    drawAmountLine("Netto nach Rabatt", formatAmount(totals.subtotal), totalsStartY + 48);
+    drawAmountLine("Zwischensumme (Netto)", formatAmount(preDiscountSubtotal), amountCursorY);
+    amountCursorY += 24;
+    drawAmountLine("Rabatt-Abzug", `- ${formatAmount(totals.discountTotal)}`, amountCursorY);
+    amountCursorY += 24;
+    if (hasTaxTotal) {
+      drawAmountLine("Netto nach Rabatt", formatAmount(totals.subtotal), amountCursorY);
+      amountCursorY += 24;
+    }
+  } else if (hasTaxTotal) {
+    drawAmountLine("Netto", formatAmount(totals.subtotal), amountCursorY);
+    amountCursorY += 24;
   }
-  drawAmountLine(getPreviewTaxLabel(), formatAmount(totals.taxTotal), taxLineY);
+
+  if (hasTaxTotal) {
+    drawAmountLine(getPreviewTaxLabel(), formatAmount(totals.taxTotal), amountCursorY);
+    amountCursorY += 24;
+  }
+
+  const totalDividerY = amountCursorY + 10;
+  const totalLineY = amountCursorY + 26;
   drawAmountLine("Gesamtbetrag \u20AC", formatAmount(totals.grossTotal), totalLineY, true);
 
   canvasContext.beginPath();
@@ -3223,23 +3336,17 @@ async function renderCanvas() {
   canvasContext.stroke();
   canvasContext.textAlign = "left";
 
-  const paymentLines = [
-    `F\u00E4llig am: ${formatDate(state.invoiceDraft.dueDate)}`,
-    business.paymentNote || "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
-    state.invoiceDraft.notes || ""
-  ].filter(Boolean);
-
-  let blockY = totalsStartY + (hasDiscountTotal ? 150 : 126);
+  let blockY = totalLineY + 58;
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillStyle = "#111111";
   paymentLines.forEach((line) => {
-    drawWrappedText(canvasContext, line, 66, blockY, 560, 18, 3);
-    blockY += 22;
+    const usedHeight = drawWrappedText(canvasContext, line, 66, blockY, 560, 18, 5);
+    blockY += Math.max(22, usedHeight + 4);
   });
 
   const footerBaseY = lastPageOffsetY + (currentPage === 0 ? 956 : PAGE_HEIGHT - 167);
   if (business.footerNote) {
-    drawWrappedText(canvasContext, business.footerNote, 66, Math.max(blockY + 26, footerBaseY), 610, 18, 3);
+    drawWrappedText(canvasContext, business.footerNote, 66, Math.max(blockY + 26, footerBaseY), 610, 18, 5);
   }
 
   for (let p = 0; p < neededPages; p += 1) {
@@ -3586,6 +3693,12 @@ async function saveArticle(event) {
   event.preventDefault();
   const article = readArticleForm();
 
+  if (!updateArticleNumberValidation()) {
+    setStatus("Diese Artikel-Nr. ist bereits vergeben.", "error");
+    articleFields.number?.focus();
+    return;
+  }
+
   try {
     const response = await api(article.id ? `/api/articles/${article.id}` : "/api/articles", {
       method: article.id ? "PUT" : "POST",
@@ -3606,6 +3719,13 @@ async function saveArticle(event) {
     setStatus("Artikel gespeichert.", "success");
     closePanelsIfMobile();
   } catch (error) {
+    if (String(error.message || "").includes("Artikel-Nr.")) {
+      articleFields.number?.classList.add("is-invalid");
+      if (articleNumberFeedback) {
+        articleNumberFeedback.textContent = error.message;
+        articleNumberFeedback.classList.add("is-error");
+      }
+    }
     setStatus(error.message || "Artikel konnte nicht gespeichert werden.", "error");
   }
 }
@@ -3802,6 +3922,7 @@ function handleInvoiceMetaInput() {
 }
 
 function handleArticleFormLiveInput() {
+  updateArticleNumberValidation();
   const articleId = articleFields.id.value.trim();
   if (articleId) {
     syncDraftItemsFromArticle(articleId, readArticleForm());

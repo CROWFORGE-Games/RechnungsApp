@@ -55,6 +55,7 @@ function createAdminSeedPayload() {
         bankName: "Sparkasse Thiersee",
         issuerName: "Daniel Kaindl",
         paymentNote: "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
+        paymentNoteNoTax: "Gem\u00E4\u00DF \u00A76 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet",
         footerNote: "Bitte geben Sie bei der \u00DCberweisung die Rechnungsnummer an."
       },
       branding: {
@@ -119,6 +120,7 @@ function createTestUserSeedPayload() {
         bankName: "",
         issuerName: "Test User",
         paymentNote: "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
+        paymentNoteNoTax: "Gem\u00E4\u00DF \u00A76 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet",
         footerNote: "Bitte geben Sie bei der \u00DCberweisung die Rechnungsnummer an."
       },
       branding: {
@@ -318,6 +320,7 @@ const DEFAULT_STORE = {
       bankName: "",
       issuerName: "",
       paymentNote: "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
+      paymentNoteNoTax: "Gem\u00E4\u00DF \u00A76 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet",
       footerNote: "Bitte geben Sie bei der \u00DCberweisung die Rechnungsnummer an."
     },
     branding: {
@@ -1012,11 +1015,21 @@ function buildCustomerSyncKey(entry = {}) {
 }
 
 function buildArticleSyncKey(entry = {}) {
-  return [
-    normalizeEntityKeyPart(entry.number),
-    normalizeEntityKeyPart(entry.name),
-    normalizeEntityKeyPart(entry.unit)
-  ].join("|");
+  return normalizeEntityKeyPart(entry.number);
+}
+
+function hasDuplicateArticleNumber(articles = [], number, ignoreId = "") {
+  const normalizedNumber = String(number || "").trim().toLowerCase();
+  const normalizedIgnoreId = String(ignoreId || "").trim();
+  if (!normalizedNumber) {
+    return false;
+  }
+
+  return articles.some((entry) => {
+    const entryNumber = String(entry.number || "").trim().toLowerCase();
+    const entryId = String(entry.id || "").trim();
+    return entryNumber === normalizedNumber && entryId !== normalizedIgnoreId;
+  });
 }
 
 function registerDeletedEntity(entries = [], id) {
@@ -2898,6 +2911,10 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
       res.status(400).json({ error: "Artikelname ist erforderlich." });
       return;
     }
+    if (hasDuplicateArticleNumber(req.user.articles, article.number)) {
+      res.status(400).json({ error: "Diese Artikel-Nr. ist bereits vergeben." });
+      return;
+    }
 
     req.user.articles.push(article);
     req.user.articles = normalizeArticleCollection(req.user.articles);
@@ -2923,6 +2940,11 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
     const index = findArticleIndexByIdOrPayload(req.user.articles, req.params.id, articleInput);
     if (index === -1) {
       res.status(404).json({ error: "Artikel nicht gefunden." });
+      return;
+    }
+    const targetNumber = String(articleInput?.number || req.user.articles[index]?.number || "").trim();
+    if (hasDuplicateArticleNumber(req.user.articles, targetNumber, req.user.articles[index]?.id)) {
+      res.status(400).json({ error: "Diese Artikel-Nr. ist bereits vergeben." });
       return;
     }
 

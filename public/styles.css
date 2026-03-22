@@ -619,6 +619,12 @@ h3 {
 
 .form-inline-two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.form-inline-two > label,
+.form-inline-two > .static-field {
+  align-self: start;
 }
 
 .form-inline-three {

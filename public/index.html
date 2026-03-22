@@ -343,6 +343,7 @@
           <label>
             Artikel-Nr.
             <input name="number" type="text" />
+            <div class="field-feedback" id="articleNumberFeedback"></div>
           </label>
         </div>
         <label class="span-2">
@@ -530,6 +531,10 @@
             <label class="span-2">
               Zahlungshinweis
               <textarea name="paymentNote" rows="3"></textarea>
+            </label>
+            <label class="span-2">
+              Zahlungshinweis ohne MwSt.
+              <textarea name="paymentNoteNoTax" rows="3"></textarea>
             </label>
             <label class="span-2">
               Fußzeile

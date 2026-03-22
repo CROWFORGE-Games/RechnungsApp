@@ -21,6 +21,7 @@ const SHEETS = {
       'bic',
       'issuer_name',
       'payment_note',
+      'payment_note_no_tax',
       'footer_note',
       'invoice_title',
       'counter_year',
@@ -280,6 +281,7 @@ function upsertUserSettings_(username, data) {
     bic: business.bic || '',
     issuer_name: business.issuerName || '',
     payment_note: business.paymentNote || '',
+    payment_note_no_tax: business.paymentNoteNoTax || '',
     footer_note: business.footerNote || '',
     invoice_title: invoice.title || '',
     counter_year: invoice.counterYear || '',
@@ -338,7 +340,7 @@ function syncUserEntities_(username, data) {
   upsertEntityRows_(
     articleSheet,
     articleHeaderMap,
-    'article_id',
+    'number',
     username,
     (data.articlesUpsert || []).map((entry) => ({
       username: username,
@@ -355,7 +357,7 @@ function syncUserEntities_(username, data) {
     }))
   );
 
-  deleteEntityRows_(articleSheet, 'username', username, 'article_id', normalizeDeleteIds_(data.articlesDelete));
+  deleteEntityRows_(articleSheet, 'username', username, 'article_id', normalizeDeleteIds_(data.articlesDelete), 'number');
 }
 
 function listUsers_() {
@@ -406,6 +408,7 @@ function buildUserSettingsFromRow_(row, indexMap) {
       bic: getCell_(row, indexMap, 'bic'),
       issuerName: getCell_(row, indexMap, 'issuer_name'),
       paymentNote: getCell_(row, indexMap, 'payment_note'),
+      paymentNoteNoTax: getCell_(row, indexMap, 'payment_note_no_tax'),
       footerNote: getCell_(row, indexMap, 'footer_note')
     },
     auth: {
@@ -449,11 +452,12 @@ function buildCustomerFromRow_(row, indexMap) {
 }
 
 function buildArticleFromRow_(row, indexMap) {
+  const number = getCell_(row, indexMap, 'number');
   return {
-    id: getCell_(row, indexMap, 'article_id'),
+    id: firstNonEmpty_(getCell_(row, indexMap, 'article_id'), number),
     updatedAt: getCell_(row, indexMap, 'updated_at'),
     group: getCell_(row, indexMap, 'group_name'),
-    number: getCell_(row, indexMap, 'number'),
+    number: number,
     name: getCell_(row, indexMap, 'name'),
     description: getCell_(row, indexMap, 'description'),
     unit: getCell_(row, indexMap, 'unit'),
@@ -507,7 +511,7 @@ function upsertEntityRows_(sheet, headerMap, idColumn, username, rowObjects) {
   });
 }
 
-function deleteEntityRows_(sheet, usernameColumn, username, idColumn, entityIds) {
+function deleteEntityRows_(sheet, usernameColumn, username, idColumn, entityIds, fallbackColumn) {
   const normalizedIds = normalizeDeleteIds_(entityIds);
   if (!normalizedIds.length) {
     return;
@@ -520,7 +524,9 @@ function deleteEntityRows_(sheet, usernameColumn, username, idColumn, entityIds)
       continue;
     }
 
-    if (normalizedIds.indexOf(getCell_(row, table.indexMap, idColumn)) >= 0) {
+    const primaryValue = getCell_(row, table.indexMap, idColumn);
+    const fallbackValue = fallbackColumn ? getCell_(row, table.indexMap, fallbackColumn) : '';
+    if (normalizedIds.indexOf(primaryValue) >= 0 || (fallbackValue && normalizedIds.indexOf(fallbackValue) >= 0)) {
       sheet.deleteRow(index + 2);
     }
   }

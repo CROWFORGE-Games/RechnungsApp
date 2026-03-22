@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "V1.1.3";
+﻿const APP_VERSION = "V1.1.4";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -2959,9 +2959,16 @@ async function renderCanvas() {
   }
 
   const customerAddressName = customer ? getCustomerDisplayName(customer) : "";
+  const customerAddressContactPerson = customer
+    ? String(customer.contactPerson || "").trim()
+    : "";
   const customerAddressLines = customer
     ? [
         customerAddressName,
+        customerAddressContactPerson &&
+        customerAddressContactPerson !== customerAddressName
+          ? customerAddressContactPerson
+          : "",
         customer.street || "",
         [customer.postalCode, customer.city].filter(Boolean).join(" ").trim(),
         customer.country || ""

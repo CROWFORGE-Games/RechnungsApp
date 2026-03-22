@@ -860,11 +860,12 @@ function findArticleIndexByIdOrPayload(articles = [], id, input = {}) {
 
 function sanitizeArticle(input = {}) {
   const normalizedInput = normalizeLegacyData(input);
+  const normalizedNumber = String(normalizedInput.number || "").trim();
   return {
-    id: normalizedInput.id || crypto.randomUUID(),
+    id: normalizedNumber || normalizedInput.id || crypto.randomUUID(),
     updatedAt: normalizeTimestamp(normalizedInput.updatedAt || normalizedInput.updated_at, new Date().toISOString()),
     group: String(normalizedInput.group || "").trim(),
-    number: String(normalizedInput.number || "").trim(),
+    number: normalizedNumber,
     name: String(normalizedInput.name || "").trim(),
     description: String(normalizedInput.description || "").trim(),
     unit: String(normalizedInput.unit ?? "").trim(),
@@ -1909,7 +1910,9 @@ function getLogoFileName(kind) {
 }
 
 function getLogoPlaceholderPath(kind) {
-  return path.join(PUBLIC_ASSET_DIR, "logo-placeholder.svg");
+  return kind === "app"
+    ? path.join(PUBLIC_ASSET_DIR, "logo-placeholder.svg")
+    : "";
 }
 
 function getUserLogoKey(user, kind) {
@@ -2377,8 +2380,14 @@ app.get("/api/assets/logo/:kind", async (req, res, next) => {
       return;
     }
 
-    res.setHeader("Cache-Control", "public, max-age=300");
-    res.sendFile(getLogoPlaceholderPath(kind));
+    const placeholderPath = getLogoPlaceholderPath(kind);
+    if (placeholderPath) {
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.sendFile(placeholderPath);
+      return;
+    }
+
+    res.status(404).end();
   } catch (error) {
     next(error);
   }
@@ -2947,23 +2956,30 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
       res.status(400).json({ error: "Diese Artikel-Nr. ist bereits vergeben." });
       return;
     }
+    const previousNumber = String(req.user.articles[index]?.number || "").trim();
 
     req.user.articles[index] = sanitizeArticle({
       ...req.user.articles[index],
       ...articleInput,
-      id: req.user.articles[index].id,
+      id: targetNumber || req.user.articles[index].id,
       updatedAt: new Date().toISOString()
     });
     req.user.articles = normalizeArticleCollection(req.user.articles);
     const updatedArticle =
-      req.user.articles.find((entry) => String(entry.id) === String(req.params.id)) ||
+      req.user.articles.find((entry) => String(entry.id) === String(targetNumber || req.params.id)) ||
       req.user.articles.find((entry) => buildArticleSyncKey(entry) === buildArticleSyncKey(articleInput)) ||
-      sanitizeArticle({ ...articleInput, id: req.params.id });
+      sanitizeArticle({ ...articleInput, id: targetNumber || req.params.id });
     req.user.deletedArticles = clearDeletedEntity(req.user.deletedArticles, updatedArticle.id);
+    const articleDeleteBatch = [];
+    if (previousNumber && previousNumber !== updatedArticle.number) {
+      req.user.deletedArticles = registerDeletedEntity(req.user.deletedArticles, previousNumber);
+      articleDeleteBatch.push(previousNumber);
+    }
     markUserActivity(req.user);
     await writeStore(req.store);
     queueGoogleSheetsEntitySync(req.store, req.user, {
-      articlesUpsert: [updatedArticle]
+      articlesUpsert: [updatedArticle],
+      articlesDelete: articleDeleteBatch
     });
     res.json({ article: updatedArticle });
   } catch (error) {

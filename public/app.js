@@ -11,7 +11,6 @@ const BRAND_ASSET_URLS = {
   invoice: "/api/assets/logo/invoice",
   app: "/api/assets/logo/app"
 };
-const INVOICE_LOGO_PLACEHOLDER_URL = "/assets/logo-placeholder.svg";
 const APP_LOGO_PLACEHOLDER_URL = "/assets/app-icon.svg";
 const EMPTY_IMAGE_DATA_URL =
   "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
@@ -509,7 +508,12 @@ function selectedCustomer() {
 }
 
 function selectedArticle(articleId) {
-  return state.articles.find((entry) => entry.id === articleId) || null;
+  const normalizedArticleId = String(articleId || "").trim();
+  return (
+    state.articles.find((entry) => String(entry.number || "").trim() === normalizedArticleId) ||
+    state.articles.find((entry) => String(entry.id || "").trim() === normalizedArticleId) ||
+    null
+  );
 }
 
 function isAdminUser() {
@@ -1361,13 +1365,7 @@ async function loadLogo() {
     logoState.loaded = true;
     return logoState.image;
   } catch {
-    try {
-      logoState.image = await loadImage(getBrandAssetUrl("invoice"));
-      logoState.loaded = true;
-      return logoState.image;
-    } catch {
-      // Platzhalter statt Standardlogo.
-    }
+    // Kein Rechnungslogo vorhanden.
   }
 
   logoState.loaded = true;
@@ -1720,13 +1718,14 @@ function updatePasswordDialogValidation() {
 
 function refreshBrandAssets() {
   const invoiceDataUrl = getBrandingLogoDataUrl("invoice");
+  const persistedInvoiceDataUrl = readPersistedInvoiceLogo();
   const appDataUrl = getBrandingLogoDataUrl("app");
-  const invoiceUrl = invoiceDataUrl || getBrandAssetUrl("invoice");
+  const invoiceUrl = invoiceDataUrl || persistedInvoiceDataUrl || getBrandAssetUrl("invoice");
   const appUrl = appDataUrl || getBrandAssetUrl("app");
   const hasInvoiceLogo =
     Boolean(state.settings?.branding?.hasInvoiceLogo) ||
     Boolean(invoiceDataUrl) ||
-    Boolean(readPersistedInvoiceLogo());
+    Boolean(persistedInvoiceDataUrl);
   const hasAppLogo = Boolean(state.settings?.branding?.hasAppLogo);
   const appPreviewUrl = hasAppLogo ? appUrl : APP_LOGO_PLACEHOLDER_URL;
 
@@ -2499,11 +2498,12 @@ function toggleAdminUserExpanded(username) {
 }
 
 function buildArticleOptions(selectedId) {
+  const normalizedSelectedId = String(selectedId || "").trim();
   const options = ['<option value="">Artikel ausw\u00E4hlen</option>'];
   for (const article of sortByNumericField(state.articles, "number")) {
     options.push(
-      `<option value="${escapeHtml(article.id)}"${
-        article.id === selectedId ? " selected" : ""
+      `<option value="${escapeHtml(article.number || article.id)}"${
+        String(article.number || article.id || "").trim() === normalizedSelectedId ? " selected" : ""
       }>${escapeHtml(`${article.number || "Ohne Nr."} - ${article.name}`)}</option>`
     );
   }
@@ -2696,7 +2696,7 @@ function applyArticleToItem(item, article) {
 
   return {
     ...item,
-    articleId: article.id,
+    articleId: article.number || article.id,
     articleNumber: article.number || "",
     description: article.name || item.description,
     unit: article.unit || item.unit || "",
@@ -2707,9 +2707,10 @@ function applyArticleToItem(item, article) {
 }
 
 function syncDraftItemsFromArticle(articleId, draftArticle) {
+  const normalizedArticleId = String(articleId || "").trim();
   let changed = false;
   state.invoiceDraft.items = state.invoiceDraft.items.map((item) => {
-    if (item.articleId !== articleId) {
+    if (String(item.articleId || "").trim() !== normalizedArticleId) {
       return item;
     }
 
@@ -3707,11 +3708,11 @@ async function saveArticle(event) {
 
     const savedArticle = normalizeArticle(response.article);
     state.articles = article.id
-      ? state.articles.map((entry) => (entry.id === savedArticle.id ? savedArticle : entry))
+      ? state.articles.map((entry) => (entry.id === article.id ? savedArticle : entry))
       : [...state.articles, savedArticle];
 
     state.articles = sortByNumericField(state.articles, "number");
-    syncDraftItemsFromArticle(savedArticle.id, savedArticle);
+    syncDraftItemsFromArticle(article.id || savedArticle.id, savedArticle);
     renderArticles();
     renderInvoiceItems();
     resetArticleForm();
@@ -3786,7 +3787,9 @@ async function handleArticleTableClick(event) {
       await api(`/api/articles/${article.id}`, { method: "DELETE" });
       state.articles = state.articles.filter((entry) => entry.id !== article.id);
       state.invoiceDraft.items = state.invoiceDraft.items.map((item) =>
-        item.articleId === article.id ? { ...item, articleId: "" } : item
+        String(item.articleId || "").trim() === String(article.number || article.id || "").trim()
+          ? { ...item, articleId: "" }
+          : item
       );
       renderArticles();
       renderInvoiceItems();
@@ -4639,6 +4642,8 @@ function bindStaticEvents() {
     }
 
     articleFields.group.value = option.dataset.groupOption || "";
+    updateArticleFormActionVisibility();
+    handleArticleFormLiveInput();
     articleGroupSuggestions.hidden = true;
     articleFields.group.blur();
   });

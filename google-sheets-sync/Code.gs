@@ -344,7 +344,7 @@ function syncUserEntities_(username, data) {
     username,
     (data.articlesUpsert || []).map((entry) => ({
       username: username,
-      article_id: String(entry.id || '').trim(),
+      article_id: '',
       group_name: entry.group || '',
       number: entry.number || '',
       name: entry.name || '',

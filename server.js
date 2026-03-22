@@ -746,8 +746,7 @@ function sanitizeSettings(settings) {
       isLocked: Boolean(normalizedSettings.auth?.isLocked)
     },
     branding: {
-      hasInvoiceLogo: Boolean(normalizedSettings.branding?.hasInvoiceLogo),
-      invoiceLogoDataUrl: String(normalizedSettings.branding?.invoiceLogoDataUrl || "")
+      hasInvoiceLogo: Boolean(normalizedSettings.branding?.hasInvoiceLogo)
     },
     invoice: {
       title: normalizedSettings.invoice.title,
@@ -1054,7 +1053,7 @@ function remoteSettingsNeedBackfill(user, remoteSettings = {}) {
     (String(localBusiness.phone || "").trim() && !String(remoteBusiness.phone || "").trim()) ||
     (String(localBusiness.email || "").trim() && !String(remoteBusiness.email || "").trim()) ||
     (String(localBusiness.uid || "").trim() && !String(remoteBusiness.uid || "").trim()) ||
-    (localBranding.hasInvoiceLogo && localBranding.invoiceLogoDataUrl && !remoteBranding.hasInvoiceLogo)
+    (localBranding.hasInvoiceLogo && !remoteBranding.hasInvoiceLogo)
   );
 }
 
@@ -1207,13 +1206,8 @@ function reconcileUserWithRemoteData(user, remoteData = {}) {
   if (remoteData.settings) {
     const localSettings = mergeSettings(user.settings);
     const remoteSettings = mergeSettings(remoteData.settings);
-    if (
-      localSettings.branding?.hasInvoiceLogo &&
-      localSettings.branding?.invoiceLogoDataUrl &&
-      !remoteSettings.branding?.hasInvoiceLogo
-    ) {
+    if (localSettings.branding?.hasInvoiceLogo && !remoteSettings.branding?.hasInvoiceLogo) {
       remoteSettings.branding.hasInvoiceLogo = true;
-      remoteSettings.branding.invoiceLogoDataUrl = localSettings.branding.invoiceLogoDataUrl;
     }
 
     if (getTimestampMs(remoteSettingsUpdatedAt) > getTimestampMs(localSettingsUpdatedAt)) {
@@ -1919,16 +1913,6 @@ async function readStoredLogo(user, kind) {
     return null;
   }
 
-  const branding = user?.settings?.branding || {};
-  const dataUrl = String(branding.invoiceLogoDataUrl || "");
-  if (dataUrl.startsWith("data:image/png;base64,")) {
-    try {
-      return Buffer.from(dataUrl.split(",")[1] || "", "base64");
-    } catch {
-      // Fallback auf lokale Datei
-    }
-  }
-
   const localPath = path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`);
   try {
     return await fs.readFile(localPath);
@@ -1953,8 +1937,7 @@ async function saveLogoAsset(user, kind, imageDataUrl) {
   await fs.writeFile(path.join(ASSET_STORAGE_DIR, `${user.id}-${getLogoFileName(kind)}`), imageBuffer);
   user.settings.branding = {
     ...(user.settings.branding || {}),
-    hasInvoiceLogo: true,
-    invoiceLogoDataUrl: String(imageDataUrl)
+    hasInvoiceLogo: true
   };
 }
 
@@ -1972,8 +1955,7 @@ async function removeLogoAsset(user, kind) {
 
   user.settings.branding = {
     ...(user.settings.branding || {}),
-    hasInvoiceLogo: false,
-    invoiceLogoDataUrl: ""
+    hasInvoiceLogo: false
   };
 }
 

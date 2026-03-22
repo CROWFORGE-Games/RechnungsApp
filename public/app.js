@@ -15,6 +15,9 @@ const INVOICE_LOGO_PLACEHOLDER_URL = "/assets/logo-placeholder.svg";
 const APP_LOGO_PLACEHOLDER_URL = "/assets/app-icon.svg";
 const EMPTY_IMAGE_DATA_URL =
   "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const DEVICE_ASSET_DB_NAME = "billingapp-assets";
+const DEVICE_ASSET_DB_VERSION = 1;
+const DEVICE_ASSET_STORE = "invoiceLogos";
 
 const state = {
   auth: {
@@ -643,6 +646,35 @@ function normalizeStorageUsername(username = "") {
   return String(username || "").trim().toLowerCase();
 }
 
+let deviceAssetDbPromise = null;
+
+function openDeviceAssetDatabase() {
+  if (!("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+
+  if (!deviceAssetDbPromise) {
+    deviceAssetDbPromise = new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(DEVICE_ASSET_DB_NAME, DEVICE_ASSET_DB_VERSION);
+
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(DEVICE_ASSET_STORE)) {
+          database.createObjectStore(DEVICE_ASSET_STORE, { keyPath: "username" });
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Logo-Datenbank konnte nicht geöffnet werden."));
+    }).catch((error) => {
+      console.warn("Lokale Logo-Datenbank ist nicht verfügbar.", error);
+      return null;
+    });
+  }
+
+  return deviceAssetDbPromise;
+}
+
 function getInvoiceLogoStorageKey(username = state.settings?.auth?.username || state.auth.username) {
   const normalizedUsername = normalizeStorageUsername(username);
   return normalizedUsername ? `billingapp.invoiceLogo.${normalizedUsername}` : "";
@@ -672,6 +704,67 @@ function persistInvoiceLogoLocally(dataUrl = "", username = state.settings?.auth
   }
 }
 
+async function readPersistedInvoiceLogoFromDevice(username = state.settings?.auth?.username || state.auth.username) {
+  const localDataUrl = readPersistedInvoiceLogo(username);
+  if (localDataUrl.startsWith("data:image/")) {
+    return localDataUrl;
+  }
+
+  const normalizedUsername = normalizeStorageUsername(username);
+  if (!normalizedUsername) {
+    return "";
+  }
+
+  try {
+    const database = await openDeviceAssetDatabase();
+    if (!database) {
+      return localDataUrl;
+    }
+
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(DEVICE_ASSET_STORE, "readonly");
+      const store = transaction.objectStore(DEVICE_ASSET_STORE);
+      const request = store.get(normalizedUsername);
+      request.onsuccess = () => resolve(String(request.result?.dataUrl || ""));
+      request.onerror = () => reject(request.error || new Error("Rechnungslogo konnte nicht geladen werden."));
+    });
+  } catch (error) {
+    console.warn("Rechnungslogo konnte nicht aus dem Gerätespeicher gelesen werden.", error);
+    return localDataUrl;
+  }
+}
+
+async function persistInvoiceLogoToDeviceCache(
+  dataUrl = "",
+  username = state.settings?.auth?.username || state.auth.username
+) {
+  persistInvoiceLogoLocally(dataUrl, username);
+
+  const normalizedUsername = normalizeStorageUsername(username);
+  if (!normalizedUsername) {
+    return;
+  }
+
+  try {
+    const database = await openDeviceAssetDatabase();
+    if (!database) {
+      return;
+    }
+
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(DEVICE_ASSET_STORE, "readwrite");
+      const store = transaction.objectStore(DEVICE_ASSET_STORE);
+      const request = String(dataUrl || "").startsWith("data:image/")
+        ? store.put({ username: normalizedUsername, dataUrl: String(dataUrl) })
+        : store.delete(normalizedUsername);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error("Rechnungslogo konnte nicht gespeichert werden."));
+    });
+  } catch (error) {
+    console.warn("Rechnungslogo konnte nicht im Gerätespeicher gespeichert werden.", error);
+  }
+}
+
 function hydrateInvoiceLogoFromLocalCache(username = state.settings?.auth?.username || state.auth.username) {
   if (!state.settings) {
     return;
@@ -688,6 +781,18 @@ function hydrateInvoiceLogoFromLocalCache(username = state.settings?.auth?.usern
   const cachedDataUrl = readPersistedInvoiceLogo(username);
   if (cachedDataUrl.startsWith("data:image/")) {
     setBrandingLogoState("invoice", cachedDataUrl);
+  }
+}
+
+async function hydrateInvoiceLogoFromDeviceCache(username = state.settings?.auth?.username || state.auth.username) {
+  hydrateInvoiceLogoFromLocalCache(username);
+
+  if (!state.settings?.branding?.invoiceLogoDataUrl) {
+    const cachedDataUrl = await readPersistedInvoiceLogoFromDevice(username);
+    if (cachedDataUrl.startsWith("data:image/")) {
+      setBrandingLogoState("invoice", cachedDataUrl);
+      persistInvoiceLogoLocally(cachedDataUrl, username);
+    }
   }
 }
 
@@ -1217,11 +1322,6 @@ async function loadLogo() {
     return logoState.image;
   }
 
-  if (!state.settings?.branding?.hasInvoiceLogo) {
-    logoState.loaded = true;
-    return null;
-  }
-
   const cachedInvoiceLogoDataUrl = String(state.settings?.branding?.invoiceLogoDataUrl || "");
   if (cachedInvoiceLogoDataUrl.startsWith("data:image/")) {
     try {
@@ -1233,10 +1333,28 @@ async function loadLogo() {
     }
   }
 
+  const deviceCachedLogoDataUrl = await readPersistedInvoiceLogoFromDevice();
+  if (deviceCachedLogoDataUrl.startsWith("data:image/")) {
+    try {
+      setBrandingLogoState("invoice", deviceCachedLogoDataUrl);
+      persistInvoiceLogoLocally(deviceCachedLogoDataUrl);
+      logoState.image = await loadImage(deviceCachedLogoDataUrl);
+      logoState.loaded = true;
+      return logoState.image;
+    } catch {
+      // Fallback auf Server-Asset.
+    }
+  }
+
+  if (!state.settings?.branding?.hasInvoiceLogo) {
+    logoState.loaded = true;
+    return null;
+  }
+
   try {
     const serverLogoDataUrl = await fetchImageAsDataUrl(getBrandAssetUrl("invoice"));
     setBrandingLogoState("invoice", serverLogoDataUrl);
-    persistInvoiceLogoLocally(serverLogoDataUrl);
+    await persistInvoiceLogoToDeviceCache(serverLogoDataUrl);
     logoState.image = await loadImage(serverLogoDataUrl);
     logoState.loaded = true;
     return logoState.image;
@@ -1275,6 +1393,10 @@ function setBrandingLogoState(kind, dataUrl = "") {
           appLogoDataUrl: String(dataUrl || "")
         })
   };
+  if (kind === "invoice") {
+    logoState.loaded = false;
+    logoState.image = null;
+  }
 }
 
 function applyReceivedSettings(settings) {
@@ -1595,7 +1717,10 @@ function refreshBrandAssets() {
   const appDataUrl = getBrandingLogoDataUrl("app");
   const invoiceUrl = invoiceDataUrl || getBrandAssetUrl("invoice");
   const appUrl = appDataUrl || getBrandAssetUrl("app");
-  const hasInvoiceLogo = Boolean(state.settings?.branding?.hasInvoiceLogo);
+  const hasInvoiceLogo =
+    Boolean(state.settings?.branding?.hasInvoiceLogo) ||
+    Boolean(invoiceDataUrl) ||
+    Boolean(readPersistedInvoiceLogo());
   const hasAppLogo = Boolean(state.settings?.branding?.hasAppLogo);
   const appPreviewUrl = hasAppLogo ? appUrl : APP_LOGO_PLACEHOLDER_URL;
 
@@ -1772,7 +1897,7 @@ async function saveSelectedLogo(kind, file) {
   const imageDataUrl = await fileToPngDataUrl(file);
   setBrandingLogoState(kind, imageDataUrl);
   if (kind === "invoice") {
-    persistInvoiceLogoLocally(imageDataUrl);
+    await persistInvoiceLogoToDeviceCache(imageDataUrl);
   }
   refreshBrandAssets();
 
@@ -1793,7 +1918,7 @@ async function saveSelectedLogo(kind, file) {
         }
       });
       if (kind === "invoice") {
-        persistInvoiceLogoLocally(state.settings?.branding?.invoiceLogoDataUrl || "");
+        await persistInvoiceLogoToDeviceCache(state.settings?.branding?.invoiceLogoDataUrl || "");
       }
     }
 
@@ -1805,7 +1930,7 @@ async function saveSelectedLogo(kind, file) {
   } catch (error) {
     state.settings.branding = previousBranding;
     if (kind === "invoice") {
-      persistInvoiceLogoLocally(previousBranding.invoiceLogoDataUrl || "");
+      await persistInvoiceLogoToDeviceCache(previousBranding.invoiceLogoDataUrl || "");
     }
     refreshBrandAssets();
     if (kind === "invoice") {
@@ -2686,32 +2811,9 @@ async function renderCanvas() {
   const invoiceNumber = previewInvoiceNumber();
   const validItems = getValidInvoiceItems();
 
-  // --- Berechne wie viele Seiten benötigt werden ---
-  const ITEMS_START_Y = 430 + headerShift;
-  const LAST_PAGE_RESERVED_HEIGHT =
-    430
-    + (business.footerNote ? 36 : 0)
-    + (state.invoiceDraft.notes ? 18 : 0);
-  const FIRST_PAGE_ITEMS_END = PAGE_HEIGHT - LAST_PAGE_RESERVED_HEIGHT; // Platz für Summen und Fußzeile
-  const CONT_PAGE_ITEMS_START = 160;
-  const CONT_PAGE_ITEMS_END = PAGE_HEIGHT - LAST_PAGE_RESERVED_HEIGHT;
-
   let neededPages = 1;
-  let testY = ITEMS_START_Y;
-  let pageBreaks = []; // item-Indizes wo neue Seite beginnt
-  validItems.forEach((item, i) => {
-    const rowH = toNumber(item.discount) > 0 ? 70 : 54;
-    const limit = neededPages === 1 ? FIRST_PAGE_ITEMS_END : CONT_PAGE_ITEMS_END;
-    if (testY + rowH > limit && i > 0) {
-      pageBreaks.push(i);
-      neededPages++;
-      testY = CONT_PAGE_ITEMS_START;
-    }
-    testY += rowH;
-  });
-
-  // Canvas-Hoehe anpassen
-  const totalHeight = PAGE_HEIGHT * neededPages;
+  let pageBreaks = [];
+  let totalHeight = PAGE_HEIGHT;
   if (invoiceCanvas.height !== totalHeight) {
     invoiceCanvas.height = totalHeight;
   }
@@ -2777,14 +2879,8 @@ async function renderCanvas() {
     ? customerAddressStartY + (customerAddressLines.length - 1) * 20 + 18
     : customerAddressStartY;
 
-  const customerInfoName = customer ? String(customer.name || "").trim() : "";
-  const customerInfoContact = customer ? String(customer.contactPerson || "").trim() : "";
   const customerInfoLines = customer
     ? [
-        customerInfoName,
-        customerInfoContact && customerInfoContact !== customerInfoName
-          ? `Kontakt:      ${customerInfoContact}`
-          : "",
         `Kunden-Nr.:   ${customer.customerNumber || "-"}`,
         customer.phone ? `Telefon:      ${customer.phone}` : "",
         customer.email ? `E-Mail:       ${customer.email}` : "",
@@ -2828,6 +2924,134 @@ async function renderCanvas() {
   canvasContext.textAlign = "left";
 
   const invoiceMetaBottom = state.invoiceDraft.reference ? invoiceHeaderTop + 42 : invoiceHeaderTop + 18;
+  const firstPageItemsStart = Math.max(firstPageTableOffset, invoiceMetaBottom + 8) + 62;
+  const continuationItemsStart = 132;
+  const nonLastPageItemsEnd = FOOTER_LINE_Y - 24;
+  const lastPageReservedHeight =
+    430
+    + (business.footerNote ? 36 : 0)
+    + (state.invoiceDraft.notes ? 18 : 0);
+  const firstPageLastItemsEnd = PAGE_HEIGHT - lastPageReservedHeight;
+  const continuationLastItemsEnd = PAGE_HEIGHT - lastPageReservedHeight;
+
+  function buildInvoicePageLayout(targetPageCount) {
+    let pageIndex = 0;
+    let cursorY = firstPageItemsStart;
+    const breaks = [];
+    let itemsOnCurrentPage = 0;
+
+    for (let itemIndex = 0; itemIndex < validItems.length; itemIndex += 1) {
+      const rowHeight = toNumber(validItems[itemIndex].discount) > 0 ? 70 : 54;
+      const remainingItems = validItems.length - itemIndex;
+      const remainingPages = targetPageCount - pageIndex - 1;
+      const shouldReserveItemForNextPage =
+        remainingPages > 0 && remainingItems === remainingPages && itemsOnCurrentPage > 0;
+      let isLastPage = pageIndex === targetPageCount - 1;
+      let pageLimit =
+        pageIndex === 0
+          ? (isLastPage ? firstPageLastItemsEnd : nonLastPageItemsEnd)
+          : (isLastPage ? continuationLastItemsEnd : nonLastPageItemsEnd);
+
+      if ((cursorY + rowHeight > pageLimit || shouldReserveItemForNextPage) && itemsOnCurrentPage > 0) {
+        pageIndex += 1;
+        if (pageIndex >= targetPageCount) {
+          return { fits: false, breaks: [] };
+        }
+        breaks.push(itemIndex);
+        cursorY = continuationItemsStart;
+        itemsOnCurrentPage = 0;
+        isLastPage = pageIndex === targetPageCount - 1;
+        pageLimit = isLastPage ? continuationLastItemsEnd : nonLastPageItemsEnd;
+      }
+
+      if (cursorY + rowHeight > pageLimit) {
+        return { fits: false, breaks: [] };
+      }
+
+      cursorY += rowHeight;
+      itemsOnCurrentPage += 1;
+    }
+
+    return { fits: true, breaks };
+  }
+
+  while (true) {
+    const layout = buildInvoicePageLayout(neededPages);
+    if (layout.fits) {
+      pageBreaks = layout.breaks;
+      break;
+    }
+    neededPages += 1;
+  }
+
+  totalHeight = PAGE_HEIGHT * neededPages;
+  if (invoiceCanvas.height !== totalHeight) {
+    invoiceCanvas.height = totalHeight;
+  }
+
+  canvasContext.clearRect(0, 0, PAGE_WIDTH, totalHeight);
+  canvasContext.fillStyle = "#ffffff";
+  canvasContext.fillRect(0, 0, PAGE_WIDTH, totalHeight);
+
+  if (template) {
+    canvasContext.drawImage(template, 0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+  } else {
+    drawFallbackLayout(canvasContext, headerShift);
+  }
+
+  if (logo) {
+    const maxWidth = 180;
+    const maxHeight = 78;
+    const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height, 1);
+    canvasContext.drawImage(logo, 66, 46, logo.width * ratio, logo.height * ratio);
+  }
+
+  canvasContext.fillStyle = "#111111";
+  canvasContext.textBaseline = "top";
+
+  canvasContext.font = '12px Calibri, Candara, "Segoe UI", sans-serif';
+  if (senderLine) {
+    canvasContext.fillText(senderLine, 34, senderLineY);
+    canvasContext.beginPath();
+    canvasContext.moveTo(34, senderLineY + 16);
+    canvasContext.lineTo(332, senderLineY + 16);
+    canvasContext.strokeStyle = "#8a8a8a";
+    canvasContext.lineWidth = 0.9;
+    canvasContext.stroke();
+  }
+
+  canvasContext.font = '14px Calibri, Candara, "Segoe UI", sans-serif';
+  customerAddressLines.forEach((line, index) => {
+    canvasContext.fillText(line, 34, customerAddressStartY + index * 20);
+  });
+
+  canvasContext.fillStyle = "#f1f1f1";
+  canvasContext.strokeStyle = "#cfcfcf";
+  canvasContext.lineWidth = 1;
+  canvasContext.beginPath();
+  canvasContext.roundRect(438, customerInfoBoxY, 322, customerInfoBoxHeight, 6);
+  canvasContext.fill();
+  canvasContext.stroke();
+
+  canvasContext.fillStyle = "#111111";
+  canvasContext.font = 'bold 14px Calibri, Candara, "Segoe UI", sans-serif';
+  canvasContext.fillText("Kundeninfo", 446, customerInfoBoxY + 18);
+  canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+  customerInfoLines.forEach((line, index) => {
+    canvasContext.fillText(line, 446, customerInfoBoxY + 48 + index * 18);
+  });
+
+  canvasContext.fillStyle = "#111111";
+  canvasContext.font = 'bold 18px Calibri, Candara, "Segoe UI", sans-serif';
+  canvasContext.fillText(`${invoiceTitle} ${invoiceNumber}`, 66, invoiceHeaderTop);
+  canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
+  if (state.invoiceDraft.reference) {
+    canvasContext.fillText(`zu Bst.: ${state.invoiceDraft.reference}`, 66, invoiceHeaderTop + 28);
+  }
+  canvasContext.textAlign = "right";
+  canvasContext.fillText(`Datum: ${formatDate(state.invoiceDraft.issueDate)}`, 738, invoiceHeaderTop);
+  canvasContext.fillText(`Bearbeiter: ${business.issuerName || "-"}`, 738, invoiceHeaderTop + 24);
+  canvasContext.textAlign = "left";
 
   // --- Tabellenkopf Seite 1 ---
   const drawTableHeader = (pageOffsetY) => {
@@ -2925,7 +3149,6 @@ async function renderCanvas() {
     // Seitenumbruch prüfen
     if (pageBreaks.includes(index)) {
       currentPage++;
-      itemY = currentPage * PAGE_HEIGHT + CONT_PAGE_ITEMS_START;
       itemY = drawTableHeader(currentPage * PAGE_HEIGHT + 70);
     }
 
@@ -2981,12 +3204,14 @@ async function renderCanvas() {
   };
 
   const hasDiscountTotal = totals.discountTotal > 0;
-  const taxLineY = totalsStartY + (hasDiscountTotal ? 48 : 24);
-  const totalLineY = totalsStartY + (hasDiscountTotal ? 84 : 60);
-  const totalDividerY = totalsStartY + (hasDiscountTotal ? 68 : 44);
-  drawAmountLine("Netto", formatAmount(totals.subtotal), totalsStartY);
+  const preDiscountSubtotal = roundCurrency(totals.subtotal + totals.discountTotal);
+  const taxLineY = totalsStartY + (hasDiscountTotal ? 72 : 24);
+  const totalLineY = totalsStartY + (hasDiscountTotal ? 108 : 60);
+  const totalDividerY = totalsStartY + (hasDiscountTotal ? 92 : 44);
+  drawAmountLine(hasDiscountTotal ? "Zwischensumme (Netto)" : "Netto", formatAmount(hasDiscountTotal ? preDiscountSubtotal : totals.subtotal), totalsStartY);
   if (hasDiscountTotal) {
     drawAmountLine("Rabatt-Abzug", `- ${formatAmount(totals.discountTotal)}`, totalsStartY + 24);
+    drawAmountLine("Netto nach Rabatt", formatAmount(totals.subtotal), totalsStartY + 48);
   }
   drawAmountLine(getPreviewTaxLabel(), formatAmount(totals.taxTotal), taxLineY);
   drawAmountLine("Gesamtbetrag \u20AC", formatAmount(totals.grossTotal), totalLineY, true);
@@ -3004,7 +3229,7 @@ async function renderCanvas() {
     state.invoiceDraft.notes || ""
   ].filter(Boolean);
 
-  let blockY = totalsStartY + 126;
+  let blockY = totalsStartY + (hasDiscountTotal ? 150 : 126);
   canvasContext.font = '13px Calibri, Candara, "Segoe UI", sans-serif';
   canvasContext.fillStyle = "#111111";
   paymentLines.forEach((line) => {
@@ -3101,7 +3326,7 @@ async function clearInvoiceLogo() {
     } else {
       setBrandingLogoState("invoice", "");
     }
-    persistInvoiceLogoLocally("");
+    await persistInvoiceLogoToDeviceCache("");
     if (invoiceLogoFileInput) {
       invoiceLogoFileInput.value = "";
     }
@@ -3202,6 +3427,7 @@ async function saveAdminDefaultPassword() {
     });
 
     applyReceivedSettings(response.settings);
+    await hydrateInvoiceLogoFromDeviceCache(response.settings?.auth?.username || state.auth.username);
     populateSettingsForm();
     if (adminDefaultPasswordInput) {
       adminDefaultPasswordInput.value = defaultPassword;
@@ -4379,6 +4605,7 @@ async function bootstrap() {
     const adminMode = Boolean(response.isAdmin);
     await updateLoadingStep("Einstellungen werden geladen...");
     applyReceivedSettings(response.settings);
+    await hydrateInvoiceLogoFromDeviceCache(response.settings?.auth?.username || state.auth.username);
     state.resendConfigured = Boolean(response.resendConfigured);
     state.adminUsers = response.adminUsers || [];
     // Nav-Benutzername aktualisieren

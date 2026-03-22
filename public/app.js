@@ -7,6 +7,19 @@ const STORAGE_KEYS = {
   authPassword: "billingapp.auth.password"
 };
 
+const APP_DOWNLOAD_URL = "https://billingapp.crowforge-games.com";
+const DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT = "Deine RechnungsApp";
+const DEFAULT_ADMIN_INVITE_EMAIL_BODY =
+  "Hallo,\n\n" +
+  `du kannst die RechnungsApp hier herunterladen:\n${APP_DOWNLOAD_URL}\n\n` +
+  "Dein Benutzername: {{username}}\n" +
+  "Dein Passwort: {{default_user_password}}\n\n" +
+  "Bitte ändere dein Passwort nach der ersten Anmeldung.";
+const DEFAULT_INVOICE_EMAIL_SUBJECT = "Rechnung {{invoiceNumber}}";
+const DEFAULT_INVOICE_EMAIL_BODY =
+  "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\n" +
+  "Freundliche Grüße\n{{companyName}}";
+
 const BRAND_ASSET_URLS = {
   invoice: "/api/assets/logo/invoice",
   app: "/api/assets/logo/app"
@@ -29,6 +42,7 @@ const state = {
   resendConfigured: false,
   adminUsers: [],
   adminExpandedUsers: [],
+  adminUserEmailDrafts: {},
   customers: [],
   articles: [],
   invoices: [],
@@ -151,6 +165,7 @@ const mainInvoiceArea = document.getElementById("mainInvoiceArea");
 const adminMainArea = document.getElementById("adminMainArea");
 const adminUserForm = document.getElementById("adminUserForm");
 const adminNewUsernameInput = document.getElementById("adminNewUsername");
+const adminNewEmailInput = document.getElementById("adminNewEmail");
 const adminDefaultPasswordInput = document.getElementById("adminDefaultPassword");
 const saveAdminDefaultPasswordButton = document.getElementById("saveAdminDefaultPassword");
 const adminUsersTable = document.getElementById("adminUsersTable");
@@ -200,6 +215,9 @@ const toggleSettingsAuthPasswordButton = document.getElementById("toggleSettings
 const changeSettingsPasswordButton = document.getElementById("changeSettingsPassword");
 const ccEmailList = document.getElementById("ccEmailList");
 const addCcEmailButton = document.getElementById("addCcEmail");
+const settingsCcEmailField = document.getElementById("settingsCcEmailField");
+const settingsEmailSubjectLabel = document.getElementById("settingsEmailSubjectLabel");
+const settingsEmailBodyLabel = document.getElementById("settingsEmailBodyLabel");
 const invoiceLogoFileInput = document.getElementById("invoiceLogoFile");
 const appLogoFileInput = document.getElementById("appLogoFile");
 const removeInvoiceLogoButton = document.getElementById("removeInvoiceLogo");
@@ -932,6 +950,15 @@ function applyRoleBasedUi() {
   adminHiddenSettingsSections.forEach((section) => {
     section.hidden = adminMode;
   });
+  if (settingsCcEmailField) {
+    settingsCcEmailField.hidden = adminMode;
+  }
+  if (settingsEmailSubjectLabel) {
+    settingsEmailSubjectLabel.textContent = adminMode ? "E-Mail Titel" : "E-Mail Betreff";
+  }
+  if (settingsEmailBodyLabel) {
+    settingsEmailBodyLabel.textContent = adminMode ? "E-Mail Nachricht" : "E-Mail Text";
+  }
 
   if (adminMode && (state.openPanelId === "customersPanel" || state.openPanelId === "articlesPanel")) {
     closePanels();
@@ -1454,8 +1481,9 @@ function populateSettingsForm() {
   settingsFields.counterValue.value = invoice.counterValue ?? 0;
   settingsFields.counterYear.value = invoice.counterYear ?? new Date().getFullYear();
   renderCcEmailInputs(parseEmailList(email.ccEmail || business.email || ""));
-  settingsFields.emailSubject.value = email.subjectTemplate || "";
-  settingsFields.emailBody.value = email.bodyTemplate || "";
+  const resolvedEmailTemplates = resolveEmailTemplates(auth?.username || state.auth.username, email.subjectTemplate, email.bodyTemplate);
+  settingsFields.emailSubject.value = resolvedEmailTemplates.subject;
+  settingsFields.emailBody.value = resolvedEmailTemplates.body;
   updateSettingsAuthPasswordToggleLabel();
   if (adminDefaultPasswordInput) {
     adminDefaultPasswordInput.value = auth?.defaultUserPassword || "admin";
@@ -1476,7 +1504,44 @@ function updateAdminDefaultPasswordButtonVisibility() {
   saveAdminDefaultPasswordButton.disabled = !hasChanged;
 }
 
+function getDefaultEmailTemplates(username = state.auth.username) {
+  return String(username || "").trim() === "admin"
+    ? {
+        subject: DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT,
+        body: DEFAULT_ADMIN_INVITE_EMAIL_BODY
+      }
+    : {
+        subject: DEFAULT_INVOICE_EMAIL_SUBJECT,
+        body: DEFAULT_INVOICE_EMAIL_BODY
+      };
+}
+
+function resolveEmailTemplates(username, subjectTemplate, bodyTemplate) {
+  const defaults = getDefaultEmailTemplates(username);
+  const normalizedSubject = String(subjectTemplate || "").trim();
+  const normalizedBody = String(bodyTemplate || "").trim();
+  const useAdminInviteDefaults =
+    String(username || "").trim() === "admin" &&
+    (!normalizedSubject ||
+      !normalizedBody ||
+      (normalizedSubject === DEFAULT_INVOICE_EMAIL_SUBJECT && normalizedBody === DEFAULT_INVOICE_EMAIL_BODY));
+
+  if (useAdminInviteDefaults) {
+    return defaults;
+  }
+
+  return {
+    subject: normalizedSubject || defaults.subject,
+    body: normalizedBody || defaults.body
+  };
+}
+
 function readSettingsForm() {
+  const resolvedEmailTemplates = resolveEmailTemplates(
+    settingsFields.authUsername.value.trim() || state.auth.username,
+    settingsFields.emailSubject.value,
+    settingsFields.emailBody.value
+  );
   return {
     business: {
       companyName: settingsFields.companyName.value.trim(),
@@ -1507,14 +1572,19 @@ function readSettingsForm() {
     },
     email: {
       ccEmail: getCcEmailValue(),
-      subjectTemplate: settingsFields.emailSubject.value.trim(),
-      bodyTemplate: settingsFields.emailBody.value.trim()
+      subjectTemplate: resolvedEmailTemplates.subject,
+      bodyTemplate: resolvedEmailTemplates.body
     }
   };
 }
 
 function getComparableSettingsPayload(settings = readSettingsForm()) {
   const normalized = normalizeLegacyData(settings);
+  const resolvedEmailTemplates = resolveEmailTemplates(
+    normalized?.auth?.username || state.auth.username,
+    normalized?.email?.subjectTemplate,
+    normalized?.email?.bodyTemplate
+  );
   return {
     business: {
       companyName: String(normalized?.business?.companyName || "").trim(),
@@ -1545,8 +1615,8 @@ function getComparableSettingsPayload(settings = readSettingsForm()) {
     },
     email: {
       ccEmail: String(normalized?.email?.ccEmail || "").trim(),
-      subjectTemplate: String(normalized?.email?.subjectTemplate || "").trim(),
-      bodyTemplate: String(normalized?.email?.bodyTemplate || "").trim()
+      subjectTemplate: resolvedEmailTemplates.subject,
+      bodyTemplate: resolvedEmailTemplates.body
     }
   };
 }
@@ -2438,7 +2508,7 @@ function renderAdminUsers() {
   }
 
   if (!state.adminUsers.length) {
-    adminUsersTable.innerHTML = '<tr><td colspan="5" class="empty-state">Noch keine Benutzer vorhanden.</td></tr>';
+    adminUsersTable.innerHTML = '<tr><td colspan="6" class="empty-state">Noch keine Benutzer vorhanden.</td></tr>';
     return;
   }
 
@@ -2447,6 +2517,41 @@ function renderAdminUsers() {
       const user = normalizeLegacyData(entry);
       const isExpanded = state.adminExpandedUsers.includes(user.username);
       const lastOnlineLabel = escapeHtml(formatDateTime(user.lastOnlineAt) || "-");
+      const savedEmail = String(user.email || "").trim();
+      const emailDraft = getAdminUserEmailDraft(user.username, savedEmail);
+      const emailHasChanged = emailDraft !== savedEmail;
+      const emailCellContent =
+        user.username === "admin" || !isExpanded
+          ? escapeHtml(savedEmail || "-")
+          : `
+              <div class="admin-user-email-editor">
+                <input
+                  class="admin-user-email-input"
+                  type="email"
+                  value="${escapeHtml(emailDraft)}"
+                  placeholder="E-Mail-Adresse"
+                  data-admin-user-email="${escapeHtml(user.username)}"
+                />
+                <div class="admin-user-email-actions${emailHasChanged ? "" : " is-hidden"}">
+                  <button
+                    class="secondary"
+                    type="button"
+                    data-save-user-email="${escapeHtml(user.username)}"
+                    ${emailHasChanged ? "" : "disabled"}
+                  >
+                    E-Mail speichern
+                  </button>
+                  <button
+                    class="ghost"
+                    type="button"
+                    data-reset-user-email="${escapeHtml(user.username)}"
+                    ${emailHasChanged ? "" : "disabled"}
+                  >
+                    Zurücksetzen
+                  </button>
+                </div>
+              </div>
+            `;
       const companyLabel = user.username === "admin" ? "" : escapeHtml(user.companyName || "-");
       const lockBadge = user.isLocked
         ? '<span class="admin-user-lock-badge">Gesperrt</span>'
@@ -2480,6 +2585,7 @@ function renderAdminUsers() {
               <span class="admin-user-summary__meta">${lastOnlineLabel}</span>
             </button>
           </td>
+          <td data-label="E-Mail">${emailCellContent}</td>
           <td data-label="Firma">${companyLabel}</td>
           <td data-label="Daten">${dataLabel}</td>
           <td data-label="Zuletzt online">${lastOnlineLabel}</td>
@@ -2488,11 +2594,17 @@ function renderAdminUsers() {
               user.username === "admin"
                 ? '<div class="muted-note">Passwort über Einstellungen ändern</div>'
                 : `<div class="row-actions">
-                    <button class="admin-user-lock-button ${user.isLocked ? "secondary" : "ghost"}" type="button" data-toggle-user-lock="${escapeHtml(user.username)}">
+                    <button class="secondary" type="button" data-send-user-invite="${escapeHtml(user.username)}"${
+                      user.email ? "" : " disabled"
+                    }>
+                      E-Mail senden
+                    </button>
+                    <button class="ghost" type="button" data-share-user-invite="${escapeHtml(user.username)}">Teilen</button>
+                    <button class="danger admin-user-lock-button" type="button" data-toggle-user-lock="${escapeHtml(user.username)}">
                       ${user.isLocked ? "Benutzer entsperren" : "Benutzer sperren"}
                     </button>
                     <button class="danger" type="button" data-reset-user-password="${escapeHtml(user.username)}">Passwort zur\u00FCcksetzen</button>
-                    <button class="danger ghost-danger" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer l\u00F6schen</button>
+                    <button class="danger admin-user-delete-button" type="button" data-delete-user="${escapeHtml(user.username)}">Benutzer l\u00F6schen</button>
                   </div>`
             }
           </td>
@@ -2514,6 +2626,16 @@ function toggleAdminUserExpanded(username) {
   }
 
   renderAdminUsers();
+}
+
+function getAdminUserEmailDraft(username, fallbackEmail = "") {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!normalizedUsername) {
+    return String(fallbackEmail || "").trim();
+  }
+
+  const draft = state.adminUserEmailDrafts?.[normalizedUsername];
+  return typeof draft === "string" ? draft : String(fallbackEmail || "").trim();
 }
 
 function buildArticleOptions(selectedId) {
@@ -3511,6 +3633,7 @@ async function createAdminUser(event) {
   const username = String(adminNewUsernameInput?.value || "")
     .trim()
     .toLowerCase();
+  const email = String(adminNewEmailInput?.value || "").trim();
   const defaultPassword = String(adminDefaultPasswordInput?.value || "").trim() || "admin";
 
   if (!username) {
@@ -3523,7 +3646,7 @@ async function createAdminUser(event) {
     setLoading(true, "Benutzer wird angelegt und synchronisiert...");
     const response = await api("/api/admin/users", {
       method: "POST",
-      body: JSON.stringify({ username, defaultPassword })
+      body: JSON.stringify({ username, email, defaultPassword })
     });
 
     state.adminUsers = normalizeLegacyData(response.users || []);
@@ -3533,6 +3656,9 @@ async function createAdminUser(event) {
     }
     renderAdminUsers();
     adminUserForm?.reset();
+    if (adminNewEmailInput) {
+      adminNewEmailInput.value = "";
+    }
     if (adminDefaultPasswordInput) {
       adminDefaultPasswordInput.value = defaultPassword;
     }
@@ -3593,6 +3719,116 @@ async function resetAdminUserPassword(username) {
   } catch (error) {
     setStatus(error.message || "Passwort konnte nicht zur\u00FCckgesetzt werden.", "error");
   }
+}
+
+async function sendAdminUserInvite(username) {
+  if (!username) {
+    return;
+  }
+
+  try {
+    setLoading(true, "Zugangsdaten werden per E-Mail gesendet...");
+    const response = await api(`/api/admin/users/${encodeURIComponent(username)}/invite`, {
+      method: "POST",
+      body: JSON.stringify({ deliveryMethod: "email" })
+    });
+
+    state.adminUsers = normalizeLegacyData(response.users || state.adminUsers);
+    renderAdminUsers();
+    setStatus(response.message || `Zugangsdaten wurden an ${username} gesendet.`, "success");
+  } catch (error) {
+    setStatus(error.message || "Zugangsdaten konnten nicht gesendet werden.", "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function shareAdminUserInvite(username) {
+  if (!username) {
+    return;
+  }
+
+  try {
+    setLoading(true, "Einladung wird vorbereitet...");
+    const response = await api(`/api/admin/users/${encodeURIComponent(username)}/invite`, {
+      method: "POST",
+      body: JSON.stringify({ deliveryMethod: "share" })
+    });
+
+    const subject = String(response?.draft?.subject || DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT).trim();
+    const text = String(response?.draft?.text || "").trim();
+    if (!text) {
+      throw new Error("Einladung konnte nicht vorbereitet werden.");
+    }
+
+    const shareSupported = typeof navigator !== "undefined" && typeof navigator.share === "function";
+    if (shareSupported) {
+      await navigator.share({ title: subject, text });
+      setStatus(`Einladung für ${username} wurde geteilt.`, "success");
+      return;
+    }
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(`${subject}\n\n${text}`);
+      setStatus(`Einladung für ${username} wurde in die Zwischenablage kopiert.`, "success");
+      return;
+    }
+
+    window.prompt("Einladung kopieren", `${subject}\n\n${text}`);
+    setStatus(`Einladung für ${username} ist bereit.`, "success");
+  } catch (error) {
+    setStatus(error.message || "Einladung konnte nicht geteilt werden.", "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function saveAdminUserEmail(username) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!normalizedUsername) {
+    return;
+  }
+
+  const user = state.adminUsers.find((entry) => String(entry.username || "").trim().toLowerCase() === normalizedUsername);
+  if (!user || user.username === "admin") {
+    return;
+  }
+
+  const email = String(getAdminUserEmailDraft(normalizedUsername, user.email || "") || "").trim();
+
+  try {
+    setLoading(true, "E-Mail-Adresse wird gespeichert und synchronisiert...");
+    const response = await api(`/api/admin/users/${encodeURIComponent(normalizedUsername)}/email`, {
+      method: "PUT",
+      body: JSON.stringify({ email })
+    });
+
+    state.adminUsers = normalizeLegacyData(response.users || []);
+    state.adminUserEmailDrafts = {
+      ...state.adminUserEmailDrafts,
+      [normalizedUsername]: email
+    };
+    renderAdminUsers();
+    setStatus(response.message || `E-Mail-Adresse von ${normalizedUsername} wurde gespeichert.`, "success");
+  } catch (error) {
+    setStatus(error.message || "E-Mail-Adresse konnte nicht gespeichert werden.", "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+function resetAdminUserEmailDraft(username) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!normalizedUsername) {
+    return;
+  }
+
+  const user = state.adminUsers.find((entry) => String(entry.username || "").trim().toLowerCase() === normalizedUsername);
+  state.adminUserEmailDrafts = {
+    ...state.adminUserEmailDrafts,
+    [normalizedUsername]: String(user?.email || "").trim()
+  };
+  renderAdminUsers();
 }
 
 async function toggleAdminUserLock(username, isCurrentlyLocked) {
@@ -4708,6 +4944,30 @@ function bindStaticEvents() {
       return;
     }
 
+    const sendInviteButton = event.target.closest("[data-send-user-invite]");
+    if (sendInviteButton) {
+      await sendAdminUserInvite(sendInviteButton.dataset.sendUserInvite);
+      return;
+    }
+
+    const saveUserEmailButton = event.target.closest("[data-save-user-email]");
+    if (saveUserEmailButton) {
+      await saveAdminUserEmail(saveUserEmailButton.dataset.saveUserEmail);
+      return;
+    }
+
+    const resetUserEmailButton = event.target.closest("[data-reset-user-email]");
+    if (resetUserEmailButton) {
+      resetAdminUserEmailDraft(resetUserEmailButton.dataset.resetUserEmail);
+      return;
+    }
+
+    const shareInviteButton = event.target.closest("[data-share-user-invite]");
+    if (shareInviteButton) {
+      await shareAdminUserInvite(shareInviteButton.dataset.shareUserInvite);
+      return;
+    }
+
     const toggleLockButton = event.target.closest("[data-toggle-user-lock]");
     if (toggleLockButton) {
       const username = toggleLockButton.dataset.toggleUserLock;
@@ -4719,6 +4979,32 @@ function bindStaticEvents() {
     const deleteButton = event.target.closest("[data-delete-user]");
     if (deleteButton) {
       await deleteAdminUser(deleteButton.dataset.deleteUser);
+    }
+  });
+  adminUsersTable?.addEventListener("input", (event) => {
+    const emailInput = event.target.closest("[data-admin-user-email]");
+    if (!emailInput) {
+      return;
+    }
+
+    const username = String(emailInput.dataset.adminUserEmail || "").trim().toLowerCase();
+    if (!username) {
+      return;
+    }
+
+    state.adminUserEmailDrafts = {
+      ...state.adminUserEmailDrafts,
+      [username]: String(emailInput.value || "")
+    };
+
+    const user = state.adminUsers.find((entry) => String(entry.username || "").trim().toLowerCase() === username);
+    const hasChanged = String(emailInput.value || "").trim() !== String(user?.email || "").trim();
+    const actions = emailInput.closest(".admin-user-email-editor")?.querySelector(".admin-user-email-actions");
+    if (actions) {
+      actions.classList.toggle("is-hidden", !hasChanged);
+      actions.querySelectorAll("button").forEach((button) => {
+        button.disabled = !hasChanged;
+      });
     }
   });
   invoiceItemsTable.addEventListener("input", handleInvoiceTableInput);

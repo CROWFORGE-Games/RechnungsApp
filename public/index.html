@@ -153,6 +153,10 @@
               <input id="adminNewUsername" name="username" type="text" autocomplete="off" placeholder="z. B. max_muster" />
             </label>
             <label>
+              E-Mail-Adresse
+              <input id="adminNewEmail" name="email" type="email" autocomplete="off" placeholder="z. B. max@muster.at" />
+            </label>
+            <label>
               Standardkennwort
               <input id="adminDefaultPassword" name="defaultPassword" type="text" autocomplete="off" value="admin" />
             </label>
@@ -167,6 +171,7 @@
               <thead>
                 <tr>
                   <th>Benutzer</th>
+                  <th>E-Mail</th>
                   <th>Firma</th>
                   <th>Daten</th>
                   <th>Zuletzt online</th>
@@ -551,20 +556,20 @@
           </div>
         </details>
 
-        <details class="settings-section settings-accordion span-2" data-admin-hidden-section="email">
+        <details class="settings-section settings-accordion span-2">
           <summary class="settings-accordion__summary">E-Mail</summary>
           <div class="settings-section__grid settings-accordion__content">
-            <label class="span-2">
+            <label class="span-2" id="settingsCcEmailField">
               CC an eigene E-Mail / weitere Empfänger
               <div class="cc-list" id="ccEmailList"></div>
               <button class="ghost cc-add-button" id="addCcEmail" type="button">+ Empfänger</button>
             </label>
             <label class="span-2">
-              E-Mail Betreff
+              <span id="settingsEmailSubjectLabel">E-Mail Betreff</span>
               <input name="emailSubject" type="text" />
             </label>
             <label class="span-2">
-              E-Mail Text
+              <span id="settingsEmailBodyLabel">E-Mail Text</span>
               <textarea name="emailBody" rows="4"></textarea>
             </label>
           </div>

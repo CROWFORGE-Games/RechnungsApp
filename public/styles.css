@@ -1234,6 +1234,35 @@ th {
   font-weight: 700;
 }
 
+.admin-user-email-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-user-email-input {
+  width: 100%;
+}
+
+.admin-user-email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-user-email-actions.is-hidden {
+  display: none;
+}
+
+.admin-user-delete-button {
+  background: linear-gradient(135deg, #c34a4a, #9e3030);
+  color: #fff7f7;
+  box-shadow: 0 12px 24px rgba(144, 39, 39, 0.22);
+}
+
+.admin-user-delete-button:hover {
+  background: linear-gradient(135deg, #cf5454, #aa3535);
+}
+
 .admin-user-summary {
   display: flex;
   align-items: center;
@@ -2265,11 +2294,26 @@ body.panel-open {
     width: 100%;
   }
 
+  .admin-user-row td[data-label="Aktion"] .row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .admin-user-row td[data-label="Aktion"] .row-actions > button {
+    width: 100%;
+  }
+
+  .admin-user-row td[data-label="Aktion"] .row-actions > button:nth-child(n + 3) {
+    grid-column: 1 / -1;
+  }
+
   .admin-user-row td[data-label="Zuletzt online"] {
     display: none;
   }
 
   .admin-user-row:not(.is-expanded) td[data-label="Firma"],
+  .admin-user-row:not(.is-expanded) td[data-label="E-Mail"],
   .admin-user-row:not(.is-expanded) td[data-label="Daten"],
   .admin-user-row:not(.is-expanded) td[data-label="Aktion"] {
     display: none;
@@ -2292,6 +2336,7 @@ body.panel-open {
   }
 
   .admin-user-row.is-expanded td[data-label="Firma"],
+  .admin-user-row.is-expanded td[data-label="E-Mail"],
   .admin-user-row.is-expanded td[data-label="Daten"],
   .admin-user-row.is-expanded td[data-label="Aktion"] {
     display: grid;

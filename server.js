@@ -36,6 +36,14 @@ const PRESET_USERS = [
   { username: "kaindl_daniel", password: "admin" },
   { username: "test_user", password: "admin" }
 ];
+const APP_DOWNLOAD_URL = "https://billingapp.crowforge-games.com";
+const DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT = "Deine RechnungsApp";
+const DEFAULT_ADMIN_INVITE_EMAIL_BODY =
+  "Hallo,\n\n" +
+  `du kannst die RechnungsApp hier herunterladen:\n${APP_DOWNLOAD_URL}\n\n` +
+  "Dein Benutzername: {{username}}\n" +
+  "Dein Passwort: {{default_user_password}}\n\n" +
+  "Bitte ändere dein Passwort nach der ersten Anmeldung.";
 
 function createAdminSeedPayload() {
   return {
@@ -68,9 +76,8 @@ function createAdminSeedPayload() {
       },
       email: {
         ccEmail: "mathias.mairhofer@gmail.com",
-        subjectTemplate: "Rechnung {{invoiceNumber}}",
-        bodyTemplate:
-          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Gr\u00FC\u00DFe\n{{companyName}}"
+        subjectTemplate: DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT,
+        bodyTemplate: DEFAULT_ADMIN_INVITE_EMAIL_BODY
       }
     },
     customers: [
@@ -1848,6 +1855,7 @@ function serializeAdminUser(user, options = {}) {
     id: user.id,
     username: user.username,
     isLocked: Boolean(user.settings?.auth?.isLocked),
+    email: String(user.settings?.business?.email || "").trim(),
     companyName: String(user.settings?.business?.companyName || "").trim(),
     customerCount: Array.isArray(user.customers) ? user.customers.length : 0,
     articleCount: Array.isArray(user.articles) ? user.articles.length : 0,
@@ -1962,6 +1970,44 @@ async function saveLogoAsset(user, kind, imageDataUrl) {
   user.settings.branding = {
     ...(user.settings.branding || {}),
     hasInvoiceLogo: true
+  };
+}
+
+function buildAdminInviteTokens(adminUser, targetUser) {
+  return {
+    username: targetUser.username,
+    default_user_password: String(targetUser.settings?.auth?.password || getDefaultUserPassword(adminUser)).trim(),
+    companyName: adminUser.settings?.business?.companyName || "RechnungsApp",
+    app_url: APP_DOWNLOAD_URL,
+    download_url: APP_DOWNLOAD_URL
+  };
+}
+
+function buildAdminInviteDraft(adminUser, targetUser) {
+  const tokens = buildAdminInviteTokens(adminUser, targetUser);
+  const rawSubjectTemplate = String(adminUser.settings?.email?.subjectTemplate || "").trim();
+  const rawBodyTemplate = String(adminUser.settings?.email?.bodyTemplate || "").trim();
+  const subjectTemplate =
+    !rawSubjectTemplate ||
+    !rawBodyTemplate ||
+    (rawSubjectTemplate === "Rechnung {{invoiceNumber}}" &&
+      rawBodyTemplate ===
+        "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Gr\u00FC\u00DFe\n{{companyName}}")
+      ? DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT
+      : rawSubjectTemplate;
+  const bodyTemplate =
+    !rawSubjectTemplate ||
+    !rawBodyTemplate ||
+    (rawSubjectTemplate === "Rechnung {{invoiceNumber}}" &&
+      rawBodyTemplate ===
+        "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Gr\u00FC\u00DFe\n{{companyName}}")
+      ? DEFAULT_ADMIN_INVITE_EMAIL_BODY
+      : rawBodyTemplate;
+
+  return {
+    subject: compileTemplate(subjectTemplate, tokens).trim(),
+    text: compileTemplate(bodyTemplate, tokens).trim(),
+    email: String(targetUser.settings?.business?.email || "").trim()
   };
 }
 
@@ -2307,6 +2353,43 @@ async function sendInvoiceEmail(user, invoice, fileInfo) {
   };
 }
 
+async function sendAdminInviteEmail(adminUser, targetUser) {
+  const draft = buildAdminInviteDraft(adminUser, targetUser);
+  if (!draft.email) {
+    throw new Error("Beim Benutzer ist keine E-Mail-Adresse hinterlegt.");
+  }
+
+  const resendSettings = getResendSettings(adminUser.settings);
+  if (!isResendConfigured(resendSettings)) {
+    throw new Error("Resend ist nicht vollständig konfiguriert.");
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendSettings.apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: `"${resendSettings.companyName}" <${resendSettings.fromEmail}>`,
+      to: [draft.email],
+      cc: splitEmailList(resendSettings.ccEmail),
+      reply_to: resendSettings.replyTo || undefined,
+      subject: draft.subject,
+      text: draft.text
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Resend-Versand fehlgeschlagen (${response.status})${errorText ? `: ${errorText}` : "."}`
+    );
+  }
+
+  return draft;
+}
+
 function buildInvoiceRecord(user, payload) {
   const customerSnapshot = normalizeLegacyData(payload.customer || {});
   const customer =
@@ -2536,6 +2619,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
     const username = String(req.body?.username || "")
       .trim()
       .toLowerCase();
+    const email = String(req.body?.email || "").trim();
 
     if (!username) {
       res.status(400).json({ error: "Bitte einen Benutzernamen eingeben." });
@@ -2570,6 +2654,9 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
       username,
       password: defaultPassword,
       settings: {
+        business: {
+          email
+        },
         auth: {
           defaultUserPassword: "admin"
         }
@@ -2631,6 +2718,49 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
   }
 });
 
+app.put("/api/admin/users/:username/email", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const username = String(req.params.username || "").trim().toLowerCase();
+    if (username === "admin") {
+      res.status(400).json({ error: "Die Admin-E-Mail bitte über die Einstellungen ändern." });
+      return;
+    }
+
+    const user =
+      findUserByUsername(req.store, username) ||
+      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+    if (!user) {
+      res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
+      return;
+    }
+
+    const email = String(req.body?.email || "").trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: "Bitte eine gültige E-Mail-Adresse eingeben." });
+      return;
+    }
+
+    user.settings.business = {
+      ...user.settings.business,
+      email
+    };
+    markUserSettingsUpdated(user);
+
+    await writeStore(req.store);
+    await syncUserSettingsToGoogleSheets(user);
+
+    res.json({
+      ok: true,
+      message: email
+        ? `E-Mail-Adresse von ${user.username} wurde gespeichert.`
+        : `E-Mail-Adresse von ${user.username} wurde entfernt.`,
+      users: await buildAdminUsersResponse(req.store)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/users/:username/toggle-lock", requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const username = String(req.params.username || "").trim().toLowerCase();
@@ -2664,6 +2794,49 @@ app.post("/api/admin/users/:username/toggle-lock", requireAuth, requireAdmin, as
       message: nextLockedState
         ? `Benutzer ${user.username} wurde gesperrt.`
         : `Benutzer ${user.username} wurde entsperrt.`,
+      users: await buildAdminUsersResponse(req.store)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/users/:username/invite", requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const username = String(req.params.username || "").trim().toLowerCase();
+    if (username === "admin") {
+      res.status(400).json({ error: "Für den Admin kann keine Zugangsnachricht gesendet werden." });
+      return;
+    }
+
+    const deliveryMethod = String(req.body?.deliveryMethod || "").trim().toLowerCase();
+    if (!["email", "share"].includes(deliveryMethod)) {
+      res.status(400).json({ error: "Unbekannte Versandart." });
+      return;
+    }
+
+    const user =
+      findUserByUsername(req.store, username) ||
+      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+    if (!user) {
+      res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
+      return;
+    }
+
+    const draft = buildAdminInviteDraft(req.user, user);
+    if (deliveryMethod === "email") {
+      await sendAdminInviteEmail(req.user, user);
+      res.json({
+        ok: true,
+        message: `Zugangsdaten wurden an ${draft.email} gesendet.`,
+        users: await buildAdminUsersResponse(req.store)
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      draft,
       users: await buildAdminUsersResponse(req.store)
     });
   } catch (error) {

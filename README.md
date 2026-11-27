@@ -28,28 +28,43 @@ Danach im Browser `http://localhost:3000` aufrufen.
 - Im Konsolenfenster eine WLAN-Adresse wie `http://192.168.x.x:3000` oeffnen.
 - Auf dem Handy im Browser aufrufen und optional zum Startbildschirm hinzufuegen.
 
-## Lokale Speicherung
+## Datenhaltung
+
+Produktiv (Cloud Run) liegen alle Daten im eigenen GCP-Projekt `crowforge-billing` (europe-west3):
+
+- Firestore `(default)`:
+  - `users/{username}`: Einstellungen, Rechnungszaehler, Login
+  - `users/{username}/customers|articles|invoices/{id}`
+  - `sessions/{token}` (TTL auf `expireAt`)
+- Cloud Storage `gs://crowforge-billing-files/generated/`: erzeugte PDFs/PNGs
+- Backups: PITR (7 Tage), taeglich (7 Tage), woechentlich (14 Wochen); Bucket mit Versionierung
+- Secrets im Secret Manager von `crowforge-billing` (`resend-api-key` ...), nie im Repo
+
+Rechnungsnummern werden per Firestore-Transaktion vergeben (keine doppelten Nummern).
+Firmenlogos bleiben wie bisher im Geraete-Cache des Browsers.
+
+Lokal ohne `FIRESTORE_PROJECT_ID` speichert die App weiter in Dateien:
 
 - Benutzerdaten, Kunden, Artikel, Rechnungen und Einstellungen: `data/store.json`
 - Erzeugte PDFs und PNGs: `data/generated/`
-- Hochgeladene Logos: `data/assets/`
 
-## Cloud-Run-Deployment
+### Umgebungsvariablen
 
-Die App ist fuer einen einfachen Docker-Deploy vorbereitet:
-- Cloud Run nutzt automatisch den Port aus `PORT`
-- auf Cloud Run wird der temporaere Speicher unter `/tmp/billingapp` verwendet
-- benutzerspezifische Stammdaten kommen weiter aus Google Sheets
+- `FIRESTORE_PROJECT_ID` (z. B. `crowforge-billing`), optional `FIRESTORE_DATABASE_ID`
+- `GCS_BUCKET` (z. B. `crowforge-billing-files`)
+- `RESEND_API_KEY` (aus Secret Manager), `RESEND_FROM_EMAIL`, optional `RESEND_CC_EMAIL`
+- lokal optional `GCP_ACCESS_TOKEN` (`gcloud auth print-access-token`) statt Application Default Credentials
 
-### Was du in Google Cloud / Cloud Run setzen musst
+### Deployment
 
-- `GOOGLE_SHEETS_WEBAPP_URL`
-- `GOOGLE_SHEETS_WEBAPP_SECRET`
-- optional `RESEND_API_KEY`
-- optional `RESEND_FROM_EMAIL`
-- optional `RESEND_CC_EMAIL`
+Cloud Run Service `billingapp` in `crowforge-platform` (europe-west1) mit Service Account
+`billingapp-runtime@crowforge-platform.iam.gserviceaccount.com`
+(Firestore-User + Bucket-Objekt-Admin + Secret-Zugriff in `crowforge-billing`).
 
-Danach kann die App direkt ueber das vorhandene `Dockerfile` deployed werden.
+### Google Sheets (abgeloest)
+
+Die Daten kamen frueher aus Google Sheets (`google-sheets-sync/`). Einmaliger Import und Abgleich:
+`scripts/import-sheets-to-firestore.mjs import|verify`. Mit Firestore ist der Sheets-Sync abgeschaltet.
 
 ## Vorlage und Standard-Assets
 

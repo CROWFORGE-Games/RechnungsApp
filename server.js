@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { PDFDocument } from "pdf-lib";
 
+import { createBlobStorage } from "./lib/blob-storage.js";
+import { createFirestoreBackend } from "./lib/firestore-store.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -28,6 +31,21 @@ const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECR
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const RESEND_FROM_EMAIL = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
+const FIRESTORE_PROJECT_ID = String(process.env.FIRESTORE_PROJECT_ID || "").trim();
+const FIRESTORE_DATABASE_ID = String(process.env.FIRESTORE_DATABASE_ID || "").trim();
+const GCS_BUCKET = String(process.env.GCS_BUCKET || "").trim();
+const STORE_BACKEND = String(process.env.STORE_BACKEND || (FIRESTORE_PROJECT_ID ? "firestore" : "file"))
+  .trim()
+  .toLowerCase();
+const firestoreBackend =
+  STORE_BACKEND === "firestore"
+    ? createFirestoreBackend({ projectId: FIRESTORE_PROJECT_ID, databaseId: FIRESTORE_DATABASE_ID })
+    : null;
+const blobStorage = createBlobStorage({
+  bucketName: GCS_BUCKET,
+  projectId: FIRESTORE_PROJECT_ID,
+  localDir: GENERATED_DIR
+});
 const LOGO_KEYS = {
   invoice: "invoice"
 };
@@ -366,6 +384,10 @@ const DEFAULT_SETTINGS = {
 };
 
 function isGoogleSheetsSyncConfigured() {
+  // Mit Firestore als Quelle ist der Sheets-Sync abgeschaltet.
+  if (firestoreBackend) {
+    return false;
+  }
   return Boolean(GOOGLE_SHEETS_WEBAPP_URL && GOOGLE_SHEETS_WEBAPP_SECRET);
 }
 
@@ -719,6 +741,9 @@ function inferMimeType(fileName = "") {
 }
 
 async function ensureDataFiles() {
+  if (firestoreBackend) {
+    return;
+  }
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   await fs.mkdir(ASSET_STORAGE_DIR, { recursive: true });
@@ -730,7 +755,15 @@ async function ensureDataFiles() {
   }
 }
 
-async function readStore() {
+async function readStore({ token = "" } = {}) {
+  if (firestoreBackend) {
+    const raw = await firestoreBackend.loadRaw({ token });
+    const rawSnapshot = firestoreBackend.takeSnapshot(raw);
+    const store = mergeStore(raw);
+    firestoreBackend.setSnapshot(store, rawSnapshot);
+    return store;
+  }
+
   await ensureDataFiles();
 
   const raw = await fs.readFile(DATA_FILE, "utf8");
@@ -739,6 +772,11 @@ async function readStore() {
 }
 
 async function writeStore(store) {
+  if (firestoreBackend) {
+    await firestoreBackend.write(store);
+    return;
+  }
+
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   const tmp = DATA_FILE + ".tmp";
   await fs.writeFile(tmp, JSON.stringify(store, null, 2), "utf8");
@@ -1808,8 +1846,8 @@ function createSession(store, userId) {
 
 async function requireAuth(req, res, next) {
   try {
-    const store = await readStore();
     const token = getSessionToken(req);
+    const store = await readStore({ token });
     const { session, user } = findUserBySession(store, token);
     if (!session || !user) {
       res.status(401).json({ error: "Bitte neu anmelden." });
@@ -1877,6 +1915,36 @@ function buildInvoiceNumber(user, issueDate) {
 
   user.settings.invoice.counterValue = Number(user.settings.invoice.counterValue || 0) + 1;
   return `${issueYear}-${String(user.settings.invoice.counterValue).padStart(5, "0")}`;
+}
+
+async function allocateInvoiceNumber(store, user, issueDate) {
+  const issueYear = Number(String(issueDate || "").slice(0, 4)) || new Date().getFullYear();
+  if (firestoreBackend) {
+    const allocation = await firestoreBackend.allocateInvoiceCounter(store, user, issueYear);
+    return {
+      ...allocation,
+      number: `${allocation.next.counterYear}-${String(allocation.next.counterValue).padStart(5, "0")}`
+    };
+  }
+
+  const previous = { ...user.settings.invoice };
+  const number = buildInvoiceNumber(user, issueDate);
+  return { previous, next: { ...user.settings.invoice }, number };
+}
+
+async function releaseInvoiceNumber(store, user, allocation) {
+  if (!allocation) {
+    return;
+  }
+  try {
+    if (firestoreBackend) {
+      await firestoreBackend.releaseInvoiceCounter(store, user, allocation);
+      return;
+    }
+    user.settings.invoice = { ...user.settings.invoice, ...allocation.previous };
+  } catch (error) {
+    console.error(`Rechnungsnummer konnte nicht freigegeben werden (${user.username}).`, error);
+  }
 }
 
 function getNextSequentialNumber(entries, fieldName) {
@@ -2153,9 +2221,8 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl, pageSlices 
     return builtPdfBuffer;
   }, 3, 200);
 
-  await fs.mkdir(GENERATED_DIR, { recursive: true });
-  await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pngName), pngBuffer), 3, 200);
-  await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer), 3, 200);
+  await withRetry(() => blobStorage.writeGenerated(pngName, pngBuffer, "image/png"), 3, 200);
+  await withRetry(() => blobStorage.writeGenerated(pdfName, pdfBuffer, "application/pdf"), 3, 200);
 
   if (pageImageNames.length) {
     await Promise.all(
@@ -2165,7 +2232,7 @@ async function createInvoiceFiles(user, invoiceNumber, imageDataUrl, pageSlices 
         if (!sliceBuffer.length) {
           return Promise.resolve();
         }
-        return withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pageImageName), sliceBuffer), 3, 200);
+        return withRetry(() => blobStorage.writeGenerated(pageImageName, sliceBuffer, "image/png"), 3, 200);
       })
     );
   }
@@ -2235,8 +2302,7 @@ async function rebuildInvoiceFilesFromStoredPng(user, invoice) {
 
   const pdfName = `${user.id}_${invoice.invoiceNumber}`.replace(/[^a-zA-Z0-9-_]/g, "_") + ".pdf";
 
-  await fs.mkdir(GENERATED_DIR, { recursive: true });
-  await withRetry(() => fs.writeFile(path.join(GENERATED_DIR, pdfName), pdfBuffer), 3, 200);
+  await withRetry(() => blobStorage.writeGenerated(pdfName, pdfBuffer, "application/pdf"), 3, 200);
 
   return {
     pdfName,
@@ -2287,11 +2353,7 @@ function findReferencedFile(user, fileName) {
 }
 
 async function readGeneratedFile(fileName) {
-  try {
-    return await fs.readFile(path.join(GENERATED_DIR, fileName));
-  } catch {
-    return null;
-  }
+  return blobStorage.readGenerated(fileName);
 }
 
 async function sendInvoiceEmail(user, invoice, fileInfo) {
@@ -2427,7 +2489,7 @@ function buildInvoiceRecord(user, payload) {
 
   return {
     id: crypto.randomUUID(),
-    invoiceNumber: buildInvoiceNumber(user, issueDate),
+    invoiceNumber: "",
     title: String(payload.title || user.settings.invoice.title || "Rechnung").trim(),
     reference: String(payload.reference || "").trim(),
     issueDate,
@@ -2460,7 +2522,7 @@ app.get("/api/assets/logo/:kind", async (req, res, next) => {
     let user = null;
     const token = getSessionToken(req);
     if (token) {
-      const store = await readStore();
+      const store = await readStore({ token });
       user = findUserBySession(store, token).user || null;
     }
 
@@ -2492,8 +2554,8 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
       return;
     }
 
-    const store = await readStore();
     const token = getSessionToken(req);
+    const store = await readStore({ token });
     const { user } = findUserBySession(store, token);
     if (!user) {
       res.status(401).json({ error: "Bitte neu anmelden." });
@@ -3187,8 +3249,11 @@ app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
 });
 
 app.post("/api/invoices", requireAuth, async (req, res, next) => {
+  let allocation = null;
   try {
     const invoice = buildInvoiceRecord(req.user, req.body || {});
+    allocation = await allocateInvoiceNumber(req.store, req.user, invoice.issueDate);
+    invoice.invoiceNumber = allocation.number;
     const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl, req.body?.pageSlices ?? null);
     invoice.files = sanitizeStoredFileInfo(fileInfo);
 
@@ -3218,6 +3283,7 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
     invoice.email = emailResult;
     req.user.invoices.unshift(invoice);
     markUserActivity(req.user);
+    allocation = null;
     await writeStore(req.store);
 
     res.status(201).json({
@@ -3226,13 +3292,17 @@ app.post("/api/invoices", requireAuth, async (req, res, next) => {
       settings: getUserSettingsForClient(req.user)
     });
   } catch (error) {
+    await releaseInvoiceNumber(req.store, req.user, allocation);
     next(error);
   }
 });
 
 app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
+  let allocation = null;
   try {
     const invoice = buildInvoiceRecord(req.user, req.body || {});
+    allocation = await allocateInvoiceNumber(req.store, req.user, invoice.issueDate);
+    invoice.invoiceNumber = allocation.number;
     const fileInfo = await createInvoiceFiles(req.user, invoice.invoiceNumber, req.body?.imageDataUrl, req.body?.pageSlices ?? null);
     invoice.files = sanitizeStoredFileInfo(fileInfo);
     invoice.email = {
@@ -3242,6 +3312,7 @@ app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
 
     req.user.invoices.unshift(invoice);
     markUserActivity(req.user);
+    allocation = null;
     await writeStore(req.store);
 
     res.status(201).json({
@@ -3250,6 +3321,7 @@ app.post("/api/invoices/share-preview", requireAuth, async (req, res, next) => {
       settings: getUserSettingsForClient(req.user)
     });
   } catch (error) {
+    await releaseInvoiceNumber(req.store, req.user, allocation);
     next(error);
   }
 });
@@ -3315,6 +3387,8 @@ app.get("/health", (_req, res) => {
     ok: true,
     service: "billingapp",
     storageRoot: STORAGE_ROOT,
+    storeBackend: firestoreBackend ? "firestore" : "file",
+    fileStorage: blobStorage.kind,
     cloudRun: IS_CLOUD_RUN
   });
 });
@@ -3323,7 +3397,7 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
-export { app, ensureDataFiles };
+export { app, ensureDataFiles, createUserRecord, applySeedDataIfNeeded, mergeStore };
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 

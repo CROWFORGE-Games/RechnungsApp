@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "billingapp",
   "version": "1.1.4",
   "private": true,
@@ -8,8 +8,10 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^7.11.6",
+    "@google-cloud/storage": "^7.22.0",
     "express": "^4.21.2",
+    "google-auth-library": "^9.15.1",
     "pdf-lib": "^1.17.1"
   }
 }
-

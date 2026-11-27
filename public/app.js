@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "V2.0.0";
+﻿const APP_VERSION = "V2.0.1";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -3583,7 +3583,7 @@ function schedulePreviewRender() {
 async function saveSettings(event) {
   event.preventDefault();
   try {
-    setLoading(true, "\u00C4nderungen werden gespeichert und synchronisiert...");
+    setLoading(true, "\u00C4nderungen werden gespeichert...");
     const settingsPayload = readSettingsForm();
     const response = await api("/api/settings", {
       method: "PUT",
@@ -3691,7 +3691,7 @@ async function createAdminUser(event) {
   }
 
   try {
-    setLoading(true, "Benutzer wird angelegt und synchronisiert...");
+    setLoading(true, "Benutzer wird angelegt...");
     const response = await api("/api/admin/users", {
       method: "POST",
       body: JSON.stringify({ username, email, defaultPassword })
@@ -3845,7 +3845,7 @@ async function saveAdminUserEmail(username) {
   const email = String(getAdminUserEmailDraft(normalizedUsername, user.email || "") || "").trim();
 
   try {
-    setLoading(true, "E-Mail-Adresse wird gespeichert und synchronisiert...");
+    setLoading(true, "E-Mail-Adresse wird gespeichert...");
     const response = await api(`/api/admin/users/${encodeURIComponent(normalizedUsername)}/email`, {
       method: "PUT",
       body: JSON.stringify({ email })
@@ -3890,7 +3890,7 @@ async function toggleAdminUserLock(username, isCurrentlyLocked) {
   }
 
   try {
-    setLoading(true, isCurrentlyLocked ? "Benutzer wird entsperrt und synchronisiert..." : "Benutzer wird gesperrt und synchronisiert...");
+    setLoading(true, isCurrentlyLocked ? "Benutzer wird entsperrt..." : "Benutzer wird gesperrt...");
     const response = await api(`/api/admin/users/${encodeURIComponent(username)}/toggle-lock`, {
       method: "POST"
     });

@@ -1,4 +1,4 @@
-﻿const APP_VERSION = "V1.1.4";
+﻿const APP_VERSION = "V2.0.0";
 
 const STORAGE_KEYS = {
   navCollapsed: "billingapp.navCollapsed",
@@ -547,16 +547,53 @@ function normalizeArticle(article) {
   };
 }
 
+const API_TIMEOUT_MS = 30000;
+const API_UPLOAD_TIMEOUT_MS = 120000;
+
+function getApiTimeout(url, options = {}) {
+  if (options.timeoutMs) {
+    return options.timeoutMs;
+  }
+  const method = String(options.method || "GET").toUpperCase();
+  const isUpload = method !== "GET" && /\/api\/(invoices|assets\/logo)/.test(String(url));
+  return isUpload ? API_UPLOAD_TIMEOUT_MS : API_TIMEOUT_MS;
+}
+
 async function performApiRequest(url, options = {}) {
   const authToken = window.localStorage.getItem(STORAGE_KEYS.authToken) || "";
-  return fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(options.headers || {})
-    },
-    ...options
-  });
+  const { timeoutMs: _timeoutMs, headers: extraHeaders, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), getApiTimeout(url, options));
+  try {
+    return await fetch(url, {
+      ...fetchOptions,
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(extraHeaders || {})
+      },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Der Server antwortet nicht. Bitte Verbindung pr\u00FCfen und erneut versuchen.");
+    }
+    throw new Error("Keine Verbindung zum Server. Bitte Internetverbindung pr\u00FCfen.");
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function readApiResponseBody(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text.trim() };
+  }
 }
 
 function getStoredCredentials() {
@@ -631,9 +668,13 @@ async function api(url, options = {}) {
   }
 
   if (!response.ok) {
-    const errorData = await response
-      .json()
-      .catch(async () => ({ error: (await response.text().catch(() => "")).trim() || "Unbekannter Fehler" }));
+    const errorData = (await readApiResponseBody(response)) || {};
+    if (!errorData.error) {
+      errorData.error =
+        response.status >= 500
+          ? "Serverfehler. Bitte sp\u00E4ter erneut versuchen."
+          : `Anfrage fehlgeschlagen (${response.status}).`;
+    }
     if (
       response.status === 401 &&
       !String(url).includes("/api/auth/login") &&
@@ -654,12 +695,7 @@ async function api(url, options = {}) {
     return null;
   }
 
-  return response
-    .json()
-    .catch(async () => {
-      const text = (await response.text().catch(() => "")).trim();
-      throw new Error(text || "Antwort konnte nicht verarbeitet werden.");
-    });
+  return readApiResponseBody(response);
 }
 
 function clearAuthToken() {
@@ -890,16 +926,28 @@ function setStatus(message, tone = "info") {
     tone === "error" ? "#8f3131" : tone === "success" ? "#24583a" : "#2f6f66";
 }
 
+const LOADING_WATCHDOG_MS = 150000;
+let loadingWatchdog = null;
+
 function setLoading(active, message = "Lade Daten...") {
   if (!loadingOverlay) {
     return;
   }
 
-  if (loadingOverlayText) {
+  if (loadingOverlayText && active) {
     loadingOverlayText.textContent = message;
   }
 
   loadingOverlay.hidden = !active;
+  window.clearTimeout(loadingWatchdog);
+  loadingWatchdog = null;
+  if (active) {
+    // Sicherheitsnetz: Der Ladescreen darf nie dauerhaft stehen bleiben.
+    loadingWatchdog = window.setTimeout(() => {
+      loadingOverlay.hidden = true;
+      setStatus("Der Vorgang dauert ungew\u00F6hnlich lange. Bitte Ansicht pr\u00FCfen und ggf. neu laden.", "error");
+    }, LOADING_WATCHDOG_MS);
+  }
 }
 
 async function updateLoadingStep(message) {
@@ -3867,7 +3915,7 @@ async function deleteAdminUser(username) {
   }
 
   try {
-    setLoading(true, "Benutzer wird gel\u00F6scht und synchronisiert...");
+    setLoading(true, "Benutzer wird gel\u00F6scht...");
     const response = await api(`/api/admin/users/${encodeURIComponent(username)}`, {
       method: "DELETE"
     });
@@ -3877,6 +3925,8 @@ async function deleteAdminUser(username) {
     setStatus(response.message || `Benutzer ${username} wurde gel\u00F6scht.`, "success");
   } catch (error) {
     setStatus(error.message || "Benutzer konnte nicht gel\u00F6scht werden.", "error");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -3918,6 +3968,20 @@ async function submitPasswordChange(event) {
   }
 }
 
+function lockFormSubmit(event) {
+  const button = event?.submitter || event?.target?.querySelector?.('[type="submit"]');
+  if (!button) {
+    return () => {};
+  }
+  if (button.disabled) {
+    return null;
+  }
+  button.disabled = true;
+  return () => {
+    button.disabled = false;
+  };
+}
+
 async function saveCustomer(event) {
   event.preventDefault();
   const customer = readCustomerForm();
@@ -3928,8 +3992,12 @@ async function saveCustomer(event) {
     return;
   }
 
+  const unlock = lockFormSubmit(event);
+  if (!unlock) {
+    return;
+  }
   try {
-    const response = await api(customer.id ? `/api/customers/${customer.id}` : "/api/customers", {
+    const response = await api(customer.id ? `/api/customers/${encodeURIComponent(customer.id)}` : "/api/customers", {
       method: customer.id ? "PUT" : "POST",
       body: JSON.stringify({ customer })
     });
@@ -3949,6 +4017,8 @@ async function saveCustomer(event) {
     closePanelsIfMobile();
   } catch (error) {
     setStatus(error.message || "Kunde konnte nicht gespeichert werden.", "error");
+  } finally {
+    unlock();
   }
 }
 
@@ -3962,8 +4032,12 @@ async function saveArticle(event) {
     return;
   }
 
+  const unlock = lockFormSubmit(event);
+  if (!unlock) {
+    return;
+  }
   try {
-    const response = await api(article.id ? `/api/articles/${article.id}` : "/api/articles", {
+    const response = await api(article.id ? `/api/articles/${encodeURIComponent(article.id)}` : "/api/articles", {
       method: article.id ? "PUT" : "POST",
       body: JSON.stringify({ article })
     });
@@ -3990,6 +4064,8 @@ async function saveArticle(event) {
       }
     }
     setStatus(error.message || "Artikel konnte nicht gespeichert werden.", "error");
+  } finally {
+    unlock();
   }
 }
 
@@ -4012,7 +4088,7 @@ async function handleCustomerTableClick(event) {
 
   if (window.confirm(`Kunde "${customer.name}" wirklich löschen?`)) {
     try {
-      await api(`/api/customers/${customer.id}`, { method: "DELETE" });
+      await api(`/api/customers/${encodeURIComponent(customer.id)}`, { method: "DELETE" });
       state.customers = state.customers.filter((entry) => entry.id !== customer.id);
       if (state.invoiceDraft.customerId === customer.id) {
         state.invoiceDraft.customerId = state.customers[0]?.id || "";
@@ -4046,7 +4122,7 @@ async function handleArticleTableClick(event) {
 
   if (window.confirm(`Artikel "${article.name}" wirklich l\u00F6schen?`)) {
     try {
-      await api(`/api/articles/${article.id}`, { method: "DELETE" });
+      await api(`/api/articles/${encodeURIComponent(article.id)}`, { method: "DELETE" });
       state.articles = state.articles.filter((entry) => entry.id !== article.id);
       state.invoiceDraft.items = state.invoiceDraft.items.map((item) =>
         String(item.articleId || "").trim() === String(article.number || article.id || "").trim()
@@ -5146,6 +5222,12 @@ bindDialogs();
 bindInstallPrompt();
 bindStaticEvents();
 registerServiceWorker();
+window.addEventListener("unhandledrejection", (event) => {
+  console.error(event.reason);
+  setLoading(false);
+  setStatus(event.reason?.message || "Unerwarteter Fehler. Bitte erneut versuchen.", "error");
+});
+
 initializeApp();
 
 

@@ -61,10 +61,9 @@ Cloud Run Service `billingapp` in `crowforge-platform` (europe-west1) mit Servic
 `billingapp-runtime@crowforge-platform.iam.gserviceaccount.com`
 (Firestore-User + Bucket-Objekt-Admin + Secret-Zugriff in `crowforge-billing`).
 
-### Google Sheets (abgeloest)
+### Historie
 
-Die Daten kamen frueher aus Google Sheets (`google-sheets-sync/`). Einmaliger Import und Abgleich:
-`scripts/import-sheets-to-firestore.mjs import|verify`. Mit Firestore ist der Sheets-Sync abgeschaltet.
+Bis V1.1.4 kamen die Daten aus Google Sheets. Am 2026-11-27 wurden sie nach Firestore migriert und abgeglichen; Sheets-Code und Import-Skripte liegen nur noch in der Git-Historie (Tag `v2.0.0`).
 
 ## Vorlage und Standard-Assets
 

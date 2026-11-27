@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { existsSync, readFileSync, promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_ASSET_DIR = path.join(PUBLIC_DIR, "assets");
-const IMPORT_DIR = path.join(__dirname, "google-sheets-sync", "import");
 const IS_CLOUD_RUN = Boolean(process.env.K_SERVICE || process.env.CLOUD_RUN_JOB);
 const STORAGE_ROOT = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
@@ -26,8 +25,6 @@ const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const ASSET_STORAGE_DIR = path.join(STORAGE_ROOT, "assets");
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 3100);
-const GOOGLE_SHEETS_WEBAPP_URL = String(process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
-const GOOGLE_SHEETS_WEBAPP_SECRET = String(process.env.GOOGLE_SHEETS_WEBAPP_SECRET || "").trim();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
 const RESEND_FROM_EMAIL = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const RESEND_CC_EMAIL = String(process.env.RESEND_CC_EMAIL || "").trim();
@@ -50,11 +47,8 @@ const blobStorage = createBlobStorage({
 const LOGO_KEYS = {
   invoice: "invoice"
 };
-const PRESET_USERS = [
-  { username: "admin", password: "admin0789" },
-  { username: "kaindl_daniel", password: "admin" },
-  { username: "test_user", password: "admin" }
-];
+// Admin muss immer existieren; alle anderen Benutzer legt der Admin an.
+const PRESET_USERS = [{ username: "admin", password: "admin0789" }];
 const APP_DOWNLOAD_URL = "https://billingapp.crowforge-games.com";
 const DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT = "Deine RechnungsApp";
 const DEFAULT_ADMIN_INVITE_EMAIL_BODY =
@@ -63,238 +57,6 @@ const DEFAULT_ADMIN_INVITE_EMAIL_BODY =
   "Dein Benutzername: {{username}}\n" +
   "Dein Passwort: {{default_user_password}}\n\n" +
   "Bitte ändere dein Passwort nach der ersten Anmeldung.";
-
-function createAdminSeedPayload() {
-  return {
-    settings: {
-      business: {
-        companyName: "Testfirma",
-        addressLine1: "Musterstra\u00DFe 1",
-        addressLine2: "",
-        postalCode: "6335",
-        city: "Thiersee",
-        country: "\u00D6sterreich",
-        phone: "+43 5376 20000",
-        email: "mathias.mairhofer@gmail.com",
-        uid: "ATU12345678",
-        iban: "AT57 2050 6012 0000 0071",
-        bic: "SPKUAT22XXX",
-        bankName: "Sparkasse Thiersee",
-        issuerName: "Daniel Kaindl",
-        paymentNote: "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
-        paymentNoteNoTax: "Gem\u00E4\u00DF \u00A76 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet",
-        footerNote: "Bitte geben Sie bei der \u00DCberweisung die Rechnungsnummer an."
-      },
-      branding: {
-        hasInvoiceLogo: false
-      },
-      invoice: {
-        title: "Rechnung",
-        counterYear: new Date().getFullYear(),
-        counterValue: 0
-      },
-      email: {
-        ccEmail: "mathias.mairhofer@gmail.com",
-        subjectTemplate: DEFAULT_ADMIN_INVITE_EMAIL_SUBJECT,
-        bodyTemplate: DEFAULT_ADMIN_INVITE_EMAIL_BODY
-      }
-    },
-    customers: [
-      {
-        customerNumber: "10001",
-        name: "CROWFORGE Games",
-        contactPerson: "Mathias Mayrhofer",
-        street: "Musterweg 8",
-        postalCode: "6335",
-        city: "Thiersee",
-        country: "\u00D6sterreich",
-        phone: "+43 660 000000",
-        email: "contact@crowforge-games.com",
-        uid: "ATU87654321",
-        notes: "Testkunde f\u00FCr mobile Rechnungspr\u00FCfung."
-      }
-    ],
-    articles: [
-      {
-        group: "Test",
-        number: "10001",
-        name: "Testleistung",
-        description: "Testartikel f\u00FCr Rechnungs-App",
-        unit: "Std.",
-        unitPrice: 72,
-        taxRate: 20
-      }
-    ]
-  };
-}
-
-function createTestUserSeedPayload() {
-  return {
-    settings: {
-      business: {
-        companyName: "Test User Firma",
-        addressLine1: "Testweg 2",
-        addressLine2: "",
-        postalCode: "6335",
-        city: "Thiersee",
-        country: "\u00D6sterreich",
-        phone: "+43 660 111111",
-        email: "contact@crowforge-games.com",
-        uid: "",
-        iban: "",
-        bic: "",
-        bankName: "",
-        issuerName: "Test User",
-        paymentNote: "F\u00E4llig innerhalb von 14 Tagen ohne Abzug.",
-        paymentNoteNoTax: "Gem\u00E4\u00DF \u00A76 Abs. 1 Z 27 UStG wird keine Umsatzsteuer verrechnet",
-        footerNote: "Bitte geben Sie bei der \u00DCberweisung die Rechnungsnummer an."
-      },
-      branding: {
-        hasInvoiceLogo: false
-      },
-      invoice: {
-        title: "Rechnung",
-        counterYear: new Date().getFullYear(),
-        counterValue: 0
-      },
-      email: {
-        ccEmail: "",
-        subjectTemplate: "Rechnung {{invoiceNumber}}",
-        bodyTemplate:
-          "Guten Tag {{customerName}},\n\nanbei erhalten Sie die Rechnung {{invoiceNumber}}.\n\nFreundliche Gr\u00FC\u00DFe\n{{companyName}}"
-      }
-    },
-    customers: [
-      {
-        customerNumber: "10001",
-        name: "CROWFORGE Games",
-        contactPerson: "Mathias Mayrhofer",
-        street: "Testweg 8",
-        postalCode: "6335",
-        city: "Thiersee",
-        country: "\u00D6sterreich",
-        phone: "+43 660 000000",
-        email: "contact@crowforge-games.com",
-        uid: "",
-        notes: "Testkunde fuer test_user."
-      }
-    ],
-    articles: [
-      {
-        group: "Test",
-        number: "10001",
-        name: "Testartikel",
-        description: "Testartikel fuer test_user",
-        unit: "Std.",
-        unitPrice: 72,
-        taxRate: 20
-      }
-    ]
-  };
-}
-
-function parseCsvLine(line = "") {
-  const values = [];
-  let current = "";
-  let insideQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const nextChar = line[index + 1];
-
-    if (char === '"') {
-      if (insideQuotes && nextChar === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        insideQuotes = !insideQuotes;
-      }
-      continue;
-    }
-
-    if (char === "," && !insideQuotes) {
-      values.push(current);
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  values.push(current);
-  return values;
-}
-
-function parseCsvFile(filePath) {
-  if (!existsSync(filePath)) {
-    return [];
-  }
-
-  const raw = readFileSync(filePath, "utf8");
-  const normalized = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const lines = normalized
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length <= 1) {
-    return [];
-  }
-
-  const header = parseCsvLine(lines[0]);
-  return lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-    return header.reduce((entry, key, index) => {
-      entry[key] = values[index] ?? "";
-      return entry;
-    }, {});
-  });
-}
-
-function loadImportedUserSeed(username) {
-  const userDir = path.join(IMPORT_DIR, username);
-  const userRows = parseCsvFile(path.join(userDir, "User.csv"));
-  const customerRows = parseCsvFile(path.join(userDir, "Kunden.csv"));
-  const articleRows = parseCsvFile(path.join(userDir, "Artikel.csv"));
-
-  if (!userRows.length && !customerRows.length && !articleRows.length) {
-    return null;
-  }
-
-  const settingsJson = String(userRows[0]?.settings_json || "").trim();
-  let importedSettings = {};
-  try {
-    importedSettings = settingsJson ? JSON.parse(settingsJson) : {};
-  } catch (error) {
-    console.error(`Import-Settings für ${username} konnten nicht gelesen werden.`, error);
-  }
-
-  const customers = customerRows
-    .map((row) => {
-      try {
-        return sanitizeCustomer(JSON.parse(String(row.payload_json || "{}")));
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  const articles = articleRows
-    .map((row) => {
-      try {
-        return sanitizeArticle(JSON.parse(String(row.payload_json || "{}")));
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  return {
-    settings: mergeSettings(importedSettings),
-    customers,
-    articles
-  };
-}
 
 function normalizeAdminUser(user) {
   return createUserRecord({
@@ -318,15 +80,6 @@ function normalizeAdminUser(user) {
     articles: [],
     invoices: []
   });
-}
-
-async function getImportedUsernames() {
-  try {
-    const entries = await fs.readdir(IMPORT_DIR, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  } catch {
-    return [];
-  }
 }
 
 const DEFAULT_STORE = {
@@ -384,23 +137,10 @@ const DEFAULT_SETTINGS = {
   email: { ...DEFAULT_STORE.settings.email }
 };
 
-function isGoogleSheetsSyncConfigured() {
-  // Mit Firestore als Quelle ist der Sheets-Sync abgeschaltet.
-  if (firestoreBackend) {
-    return false;
-  }
-  return Boolean(GOOGLE_SHEETS_WEBAPP_URL && GOOGLE_SHEETS_WEBAPP_SECRET);
-}
-
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(PUBLIC_DIR));
 
-const pendingGoogleSheetSyncPayloads = new Map();
-const activeGoogleSheetSyncUsers = new Set();
-const pendingGoogleSheetEntitySyncs = new Map();
-const activeGoogleSheetEntitySyncUsers = new Set();
-let importedUsersBackfillPromise = null;
 
 function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -605,37 +345,7 @@ function createUserRecord({
 }
 
 function applySeedDataIfNeeded(user) {
-  if (user.username === "admin") {
-    return normalizeAdminUser(user);
-  }
-
-  if (!["kaindl_daniel", "test_user"].includes(user.username)) {
-    return user;
-  }
-
-  const needsSeedData =
-    !user.customers.length &&
-    !user.articles.length &&
-    !user.invoices.length &&
-    !String(user.settings?.business?.companyName || "").trim();
-
-  if (!needsSeedData) {
-    return user;
-  }
-
-  const seed =
-    user.username === "kaindl_daniel" ? loadImportedUserSeed("kaindl_daniel") : createTestUserSeedPayload();
-
-  if (!seed) {
-    return user;
-  }
-
-  return createUserRecord({
-    ...user,
-    settings: seed.settings,
-    customers: seed.customers.map((entry) => sanitizeCustomer(entry)),
-    articles: seed.articles.map((entry) => sanitizeArticle(entry))
-  });
+  return user.username === "admin" ? normalizeAdminUser(user) : user;
 }
 
 function ensurePresetUsers(users = [], { addMissing = true } = {}) {
@@ -1005,57 +715,6 @@ function normalizeDeletedEntityCollection(entries = []) {
   );
 }
 
-function buildSheetSyncPayload(user) {
-  return {
-    username: user.username,
-    updatedAt: user.updatedAt,
-    settingsUpdatedAt: user.settingsUpdatedAt || user.updatedAt,
-    lastActivityAt: user.lastActivityAt || user.updatedAt,
-    lastSeenAt: user.lastSeenAt || "",
-    settings: mergeSettings(user.settings),
-    customers: normalizeCustomerCollection(user.customers),
-    articles: normalizeArticleCollection(user.articles),
-    deletedCustomers: normalizeDeletedEntityCollection(user.deletedCustomers),
-    deletedArticles: normalizeDeletedEntityCollection(user.deletedArticles)
-  };
-}
-
-function buildSettingsSyncPayload(user) {
-  return {
-    username: user.username,
-    updatedAt: user.updatedAt,
-    settingsUpdatedAt: user.settingsUpdatedAt || user.updatedAt,
-    lastActivityAt: user.lastActivityAt || user.updatedAt,
-    lastSeenAt: user.lastSeenAt || "",
-    settings: mergeSettings(user.settings)
-  };
-}
-
-async function requestGoogleSheetsSync(action, payload = {}) {
-  if (!isGoogleSheetsSyncConfigured()) {
-    return null;
-  }
-
-  const response = await fetch(GOOGLE_SHEETS_WEBAPP_URL, {
-    method: "POST",
-    signal: AbortSignal.timeout(EXTERNAL_REQUEST_TIMEOUT_MS),
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      secret: GOOGLE_SHEETS_WEBAPP_SECRET,
-      action,
-      ...payload
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Google-Sheets-Sync fehlgeschlagen (${response.status}).`);
-  }
-
-  return response.json();
-}
-
 function normalizeEntityKeyPart(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -1105,524 +764,6 @@ function clearDeletedEntity(entries = [], id) {
   );
 }
 
-function remoteSettingsNeedBackfill(user, remoteSettings = {}) {
-  const localSettings = mergeSettings(user.settings);
-  const normalizedRemoteSettings = mergeSettings(remoteSettings);
-  const localBusiness = localSettings.business || {};
-  const remoteBusiness = normalizedRemoteSettings.business || {};
-  const localBranding = localSettings.branding || {};
-  const remoteBranding = normalizedRemoteSettings.branding || {};
-
-  return (
-    (String(localBusiness.companyName || "").trim() && !String(remoteBusiness.companyName || "").trim()) ||
-    (String(localBusiness.addressLine1 || "").trim() && !String(remoteBusiness.addressLine1 || "").trim()) ||
-    (String(localBusiness.city || "").trim() && !String(remoteBusiness.city || "").trim()) ||
-    (String(localBusiness.phone || "").trim() && !String(remoteBusiness.phone || "").trim()) ||
-    (String(localBusiness.email || "").trim() && !String(remoteBusiness.email || "").trim()) ||
-    (String(localBusiness.uid || "").trim() && !String(remoteBusiness.uid || "").trim()) ||
-    (localBranding.hasInvoiceLogo && !remoteBranding.hasInvoiceLogo)
-  );
-}
-
-function reconcileEntityCollections({
-  localEntries = [],
-  remoteEntries = [],
-  deletedEntries = [],
-  sanitize,
-  buildKey
-}) {
-  const normalizedLocal = dedupeEntities(localEntries, sanitize, buildKey);
-  const normalizedRemote = dedupeEntities(remoteEntries, sanitize, buildKey);
-  const normalizedDeleted = normalizeDeletedEntityCollection(deletedEntries);
-
-  const localById = new Map(normalizedLocal.map((entry, index) => [String(entry.id), { entry, index }]));
-  const localByKey = new Map();
-  normalizedLocal.forEach((entry) => {
-    const key = buildKey(entry);
-    if (key && key !== "||") {
-      localByKey.set(key, entry);
-    }
-  });
-
-  const deletedById = new Map(normalizedDeleted.map((entry) => [String(entry.id), entry]));
-  const nextLocal = normalizedLocal.map((entry) => ({ ...entry }));
-  const remoteUpserts = [];
-  const remoteDeletes = new Set();
-  const remoteIds = new Set();
-  const matchedLocalIds = new Set();
-  let changedLocal = normalizedLocal.length !== localEntries.length || normalizedDeleted.length !== deletedEntries.length;
-
-  for (const remoteEntry of normalizedRemote) {
-    const remoteId = String(remoteEntry.id || "").trim();
-    if (!remoteId) {
-      continue;
-    }
-
-    remoteIds.add(remoteId);
-    if (deletedById.has(remoteId)) {
-      remoteDeletes.add(remoteId);
-      continue;
-    }
-
-    let matchedLocalRecord = localById.get(remoteId);
-    let matchedByKey = false;
-    const remoteKey = buildKey(remoteEntry);
-    if (!matchedLocalRecord && remoteKey && remoteKey !== "||") {
-      const localByKeyEntry = localByKey.get(remoteKey);
-      if (localByKeyEntry) {
-        matchedLocalRecord = localById.get(String(localByKeyEntry.id));
-        matchedByKey = Boolean(matchedLocalRecord);
-      }
-    }
-
-    if (!matchedLocalRecord) {
-      nextLocal.push(remoteEntry);
-      localById.set(remoteId, { entry: remoteEntry, index: nextLocal.length - 1 });
-      if (remoteKey && remoteKey !== "||") {
-        localByKey.set(remoteKey, remoteEntry);
-      }
-      changedLocal = true;
-      continue;
-    }
-
-    const localEntry = matchedLocalRecord.entry;
-    matchedLocalIds.add(String(localEntry.id));
-
-    if (matchedByKey && remoteId !== String(localEntry.id)) {
-      remoteDeletes.add(remoteId);
-      remoteUpserts.push(localEntry);
-    }
-
-    const remoteUpdatedAt = getTimestampMs(remoteEntry.updatedAt);
-    const localUpdatedAt = getTimestampMs(localEntry.updatedAt);
-    if (remoteUpdatedAt > localUpdatedAt) {
-      const mergedRemoteEntry = sanitize({
-        ...localEntry,
-        ...remoteEntry,
-        id: localEntry.id,
-        updatedAt: remoteEntry.updatedAt
-      });
-      nextLocal[matchedLocalRecord.index] = mergedRemoteEntry;
-      localById.set(String(mergedRemoteEntry.id), {
-        entry: mergedRemoteEntry,
-        index: matchedLocalRecord.index
-      });
-      const mergedKey = buildKey(mergedRemoteEntry);
-      if (mergedKey && mergedKey !== "||") {
-        localByKey.set(mergedKey, mergedRemoteEntry);
-      }
-      changedLocal = true;
-    } else if (localUpdatedAt > remoteUpdatedAt || matchedByKey) {
-      remoteUpserts.push(localEntry);
-    }
-  }
-
-  for (const localEntry of normalizedLocal) {
-    const localId = String(localEntry.id || "").trim();
-    if (!localId || deletedById.has(localId) || matchedLocalIds.has(localId)) {
-      continue;
-    }
-
-    if (!remoteIds.has(localId)) {
-      remoteUpserts.push(localEntry);
-    }
-  }
-
-  const remainingDeleted = [];
-  for (const deletedEntry of normalizedDeleted) {
-    if (!remoteIds.has(String(deletedEntry.id || "").trim())) {
-      changedLocal = true;
-      continue;
-    }
-    remainingDeleted.push(deletedEntry);
-  }
-
-  return {
-    entries: dedupeEntities(nextLocal, sanitize, buildKey),
-    deletedEntries: remainingDeleted,
-    changedLocal,
-    remoteUpserts: dedupeEntities(remoteUpserts, sanitize, buildKey),
-    remoteDeletes: [...remoteDeletes]
-  };
-}
-
-function reconcileUserWithRemoteData(user, remoteData = {}) {
-  if (!remoteData || typeof remoteData !== "object") {
-    return {
-      changedLocal: false,
-      shouldSyncSettings: false,
-      customerUpserts: [],
-      customerDeletes: [],
-      articleUpserts: [],
-      articleDeletes: []
-    };
-  }
-
-  let changedLocal = false;
-  let shouldSyncSettings = false;
-
-  const remoteSettingsUpdatedAt = normalizeTimestamp(
-    remoteData.settingsUpdatedAt || remoteData.updatedAt,
-    user.settingsUpdatedAt || user.updatedAt || new Date().toISOString()
-  );
-  const localSettingsUpdatedAt = normalizeTimestamp(
-    user.settingsUpdatedAt || user.updatedAt,
-    new Date().toISOString()
-  );
-
-  if (remoteData.settings) {
-    const localSettings = mergeSettings(user.settings);
-    const remoteSettings = mergeSettings(remoteData.settings);
-    if (localSettings.branding?.hasInvoiceLogo && !remoteSettings.branding?.hasInvoiceLogo) {
-      remoteSettings.branding.hasInvoiceLogo = true;
-    }
-
-    if (getTimestampMs(remoteSettingsUpdatedAt) > getTimestampMs(localSettingsUpdatedAt)) {
-      user.settings = remoteSettings;
-      user.settingsUpdatedAt = remoteSettingsUpdatedAt;
-      changedLocal = true;
-    } else if (
-      getTimestampMs(localSettingsUpdatedAt) > getTimestampMs(remoteSettingsUpdatedAt) ||
-      remoteSettingsNeedBackfill(user, remoteSettings)
-    ) {
-      shouldSyncSettings = true;
-    }
-  } else {
-    shouldSyncSettings = true;
-  }
-
-  const customerResult = reconcileEntityCollections({
-    localEntries: Array.isArray(user.customers) ? user.customers : [],
-    remoteEntries: Array.isArray(remoteData.customers) ? remoteData.customers : [],
-    deletedEntries: Array.isArray(user.deletedCustomers) ? user.deletedCustomers : [],
-    sanitize: sanitizeCustomer,
-    buildKey: buildCustomerSyncKey
-  });
-  const articleResult = reconcileEntityCollections({
-    localEntries: Array.isArray(user.articles) ? user.articles : [],
-    remoteEntries: Array.isArray(remoteData.articles) ? remoteData.articles : [],
-    deletedEntries: Array.isArray(user.deletedArticles) ? user.deletedArticles : [],
-    sanitize: sanitizeArticle,
-    buildKey: buildArticleSyncKey
-  });
-
-  if (customerResult.changedLocal) {
-    user.customers = customerResult.entries;
-    user.deletedCustomers = customerResult.deletedEntries;
-    changedLocal = true;
-  }
-  if (articleResult.changedLocal) {
-    user.articles = articleResult.entries;
-    user.deletedArticles = articleResult.deletedEntries;
-    changedLocal = true;
-  }
-
-  if (remoteData.lastSeenAt && !user.lastSeenAt) {
-    user.lastSeenAt = String(remoteData.lastSeenAt);
-    changedLocal = true;
-  }
-
-  return {
-    changedLocal,
-    shouldSyncSettings,
-    customerUpserts: customerResult.remoteUpserts,
-    customerDeletes: customerResult.remoteDeletes,
-    articleUpserts: articleResult.remoteUpserts,
-    articleDeletes: articleResult.remoteDeletes
-  };
-}
-
-async function hydrateUserFromGoogleSheets(store, user) {
-  if (!isGoogleSheetsSyncConfigured()) {
-    return user;
-  }
-
-  try {
-    const response = await requestGoogleSheetsSync("getUserData", { username: user.username });
-    if (!response?.ok) {
-      return user;
-    }
-
-    if (!response.data) {
-      await syncUserToGoogleSheets(user);
-      return user;
-    }
-
-    const reconcileResult = reconcileUserWithRemoteData(user, response.data);
-    if (reconcileResult.changedLocal) {
-      await writeStore(store);
-    }
-    if (reconcileResult.shouldSyncSettings) {
-      queueGoogleSheetsSettingsSync(user);
-    }
-    if (
-      reconcileResult.customerUpserts.length ||
-      reconcileResult.customerDeletes.length ||
-      reconcileResult.articleUpserts.length ||
-      reconcileResult.articleDeletes.length
-    ) {
-      queueGoogleSheetsEntitySync(store, user, {
-        customersUpsert: reconcileResult.customerUpserts,
-        customersDelete: reconcileResult.customerDeletes,
-        articlesUpsert: reconcileResult.articleUpserts,
-        articlesDelete: reconcileResult.articleDeletes
-      });
-    }
-  } catch (error) {
-    console.error(`Google-Sheets-Import fehlgeschlagen (${user.username}).`, error);
-  }
-
-  return user;
-}
-
-async function syncUserToGoogleSheets(user) {
-  if (!isGoogleSheetsSyncConfigured()) {
-    return;
-  }
-
-  try {
-    await syncUserSettingsToGoogleSheets(user);
-    await requestGoogleSheetsSync("syncUserEntities", {
-      username: user.username,
-      data: {
-        customersUpsert: normalizeCustomerCollection(user.customers),
-        customersDelete: normalizeDeletedEntityCollection(user.deletedCustomers).map((entry) => entry.id),
-        articlesUpsert: normalizeArticleCollection(user.articles),
-        articlesDelete: normalizeDeletedEntityCollection(user.deletedArticles).map((entry) => entry.id)
-      }
-    });
-  } catch (error) {
-    console.error(`Google-Sheets-Sync fehlgeschlagen (${user.username}).`, error);
-  }
-}
-
-async function syncUserSettingsToGoogleSheets(user) {
-  if (!isGoogleSheetsSyncConfigured()) {
-    return;
-  }
-
-  try {
-    await requestGoogleSheetsSync("upsertUserSettings", {
-      username: user.username,
-      data: buildSettingsSyncPayload(user)
-    });
-  } catch (error) {
-    console.error(`Google-Sheets-Settings-Sync fehlgeschlagen (${user.username}).`, error);
-  }
-}
-
-function remoteDataNeedsBackfill(user, remoteData = {}) {
-  const reconcilePreview = reconcileUserWithRemoteData(createUserRecord({
-    ...user,
-    customers: user.customers,
-    articles: user.articles,
-    deletedCustomers: user.deletedCustomers,
-    deletedArticles: user.deletedArticles,
-    settingsUpdatedAt: user.settingsUpdatedAt
-  }), remoteData);
-
-  return (
-    reconcilePreview.shouldSyncSettings ||
-    reconcilePreview.customerUpserts.length > 0 ||
-    reconcilePreview.customerDeletes.length > 0 ||
-    reconcilePreview.articleUpserts.length > 0 ||
-    reconcilePreview.articleDeletes.length > 0
-  );
-}
-
-function buildEntitySyncBatchPayload(batch = {}) {
-  return {
-    customersUpsert: normalizeCustomerCollection(batch.customersUpsert),
-    customersDelete: [...new Set((batch.customersDelete || []).map((entry) => String(entry || "").trim()).filter(Boolean))],
-    articlesUpsert: normalizeArticleCollection(batch.articlesUpsert),
-    articlesDelete: [...new Set((batch.articlesDelete || []).map((entry) => String(entry || "").trim()).filter(Boolean))]
-  };
-}
-
-async function backfillImportedUsersToGoogleSheets(store) {
-  if (!isGoogleSheetsSyncConfigured()) {
-    return;
-  }
-
-  if (importedUsersBackfillPromise) {
-    return importedUsersBackfillPromise;
-  }
-
-  importedUsersBackfillPromise = (async () => {
-    const importedUsernames = await getImportedUsernames();
-
-    for (const username of importedUsernames) {
-      const user = findUserByUsername(store, username);
-      if (!user) {
-        continue;
-      }
-
-      try {
-        const response = await requestGoogleSheetsSync("getUserData", { username });
-        if (!response?.ok || !response.data || remoteDataNeedsBackfill(user, response.data)) {
-          await syncUserToGoogleSheets(user);
-        }
-      } catch (error) {
-        console.error(`Google-Sheets-Backfill fehlgeschlagen (${username}).`, error);
-      }
-    }
-  })().finally(() => {
-    importedUsersBackfillPromise = null;
-  });
-
-  return importedUsersBackfillPromise;
-}
-
-async function syncUserFromGoogleSheetsIntoStore(store, username) {
-  const normalizedUsername = String(username || "").trim().toLowerCase();
-  if (!normalizedUsername || !isGoogleSheetsSyncConfigured()) {
-    return null;
-  }
-
-  try {
-    let user = findUserByUsername(store, normalizedUsername);
-    const response = await requestGoogleSheetsSync("getUserData", { username: normalizedUsername });
-    if (!response?.ok || !response.data) {
-      if (user) {
-        queueGoogleSheetsSettingsSync(user);
-      }
-      return user;
-    }
-
-    const remoteData = response.data;
-    const remotePassword = String(remoteData?.settings?.auth?.password || "admin");
-
-    if (user) {
-      const reconcileResult = reconcileUserWithRemoteData(user, remoteData);
-      user.settings = mergeSettings({
-      ...user.settings,
-      ...(reconcileResult.shouldSyncSettings ? user.settings : remoteData.settings),
-      auth: {
-          ...(user.settings?.auth || {}),
-          ...(remoteData.settings?.auth || {}),
-          username: normalizedUsername,
-          password: remotePassword,
-          defaultUserPassword: String(
-            remoteData?.settings?.auth?.defaultUserPassword ||
-              user.settings?.auth?.defaultUserPassword ||
-              "admin"
-          ),
-          isLocked: Boolean(
-            remoteData?.settings?.auth?.isLocked ?? user.settings?.auth?.isLocked
-          ),
-          adminPasswordVersion:
-            normalizedUsername === "admin"
-              ? 1
-              : Number(
-                  remoteData?.settings?.auth?.adminPasswordVersion ||
-                    user.settings?.auth?.adminPasswordVersion ||
-                    0
-                )
-        }
-      });
-      user.passwordHash = hashPassword(remotePassword);
-      if (remoteData.createdAt && !user.createdAt) {
-        user.createdAt = String(remoteData.createdAt);
-      }
-      if (remoteData.settingsUpdatedAt && !reconcileResult.shouldSyncSettings) {
-        user.settingsUpdatedAt = String(remoteData.settingsUpdatedAt);
-      }
-      if (remoteData.lastSeenAt) {
-        user.lastSeenAt = String(remoteData.lastSeenAt);
-      }
-      if (reconcileResult.shouldSyncSettings) {
-        queueGoogleSheetsSettingsSync(user);
-      }
-      if (
-        reconcileResult.customerUpserts.length ||
-        reconcileResult.customerDeletes.length ||
-        reconcileResult.articleUpserts.length ||
-        reconcileResult.articleDeletes.length
-      ) {
-        queueGoogleSheetsEntitySync(store, user, {
-          customersUpsert: reconcileResult.customerUpserts,
-          customersDelete: reconcileResult.customerDeletes,
-          articlesUpsert: reconcileResult.articleUpserts,
-          articlesDelete: reconcileResult.articleDeletes
-        });
-      }
-    } else {
-      user = applySeedDataIfNeeded(
-        createUserRecord({
-          username: normalizedUsername,
-          password: remotePassword,
-          settings: remoteData.settings,
-          customers: Array.isArray(remoteData.customers) ? remoteData.customers : [],
-          articles: Array.isArray(remoteData.articles) ? remoteData.articles : [],
-          invoices: Array.isArray(remoteData.invoices) ? remoteData.invoices : [],
-          createdAt: remoteData.createdAt || remoteData.updatedAt,
-          updatedAt: remoteData.updatedAt,
-          settingsUpdatedAt: remoteData.settingsUpdatedAt || remoteData.updatedAt,
-          lastActivityAt: remoteData.lastActivityAt || remoteData.updatedAt,
-          lastSeenAt: remoteData.lastSeenAt
-        })
-      );
-      store.users.push(user);
-    }
-
-    await writeStore(store);
-    return user;
-  } catch (error) {
-    console.error(`Google-Sheets-Benutzer konnte nicht lokal wiederhergestellt werden (${normalizedUsername}).`, error);
-    return findUserByUsername(store, normalizedUsername);
-  }
-}
-
-async function buildAdminUsersResponse(store) {
-  let users = buildAdminUsersLocalResponse(store);
-  if (!isGoogleSheetsSyncConfigured()) {
-    return users;
-  }
-
-  try {
-    const response = await requestGoogleSheetsSync("listUsers");
-    if (!response?.ok || !Array.isArray(response.users)) {
-      return users;
-    }
-
-    const remoteUsersByName = new Map(
-      response.users.map((entry) => [String(entry.username || "").trim().toLowerCase(), entry])
-    );
-
-    const remoteUsernames = response.users
-      .map((entry) => String(entry.username || "").trim().toLowerCase())
-      .filter(Boolean);
-
-    if (remoteUsernames.length) {
-      await Promise.all(remoteUsernames.map((username) => syncUserFromGoogleSheetsIntoStore(store, username)));
-      users = buildAdminUsersLocalResponse(store);
-    }
-
-    return response.users
-      .map((remoteUser) => {
-        const username = String(remoteUser.username || "").trim().toLowerCase();
-        const syncedUser = users.find((entry) => String(entry.username || "").trim().toLowerCase() === username);
-        if (!syncedUser) {
-          return null;
-        }
-
-        return {
-          ...syncedUser,
-          lastOnlineAt: String(remoteUser.lastSeenAt || remoteUser.updatedAt || syncedUser.lastOnlineAt || ""),
-          schemaVersion: String(remoteUser.schemaVersion || syncedUser.schemaVersion || ""),
-          migratedToStructuredColumns: Boolean(
-            remoteUser.migratedToStructuredColumns || syncedUser.migratedToStructuredColumns
-          )
-        };
-      })
-      .filter(Boolean)
-      .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
-  } catch (error) {
-    console.error("Google-Sheets-Benutzerliste konnte nicht geladen werden.", error);
-    return users;
-  }
-}
-
 function buildAdminUsersLocalResponse(store) {
   return store.users
     .map((user) =>
@@ -1631,136 +772,6 @@ function buildAdminUsersLocalResponse(store) {
       })
     )
     .sort((left, right) => String(left.username).localeCompare(String(right.username), "de"));
-}
-
-function queueGoogleSheetsSettingsSync(user) {
-  if (!isGoogleSheetsSyncConfigured() || !user?.username) {
-    return;
-  }
-
-  const username = String(user.username).trim();
-  pendingGoogleSheetSyncPayloads.set(username, buildSettingsSyncPayload(user));
-
-  if (activeGoogleSheetSyncUsers.has(username)) {
-    return;
-  }
-
-  activeGoogleSheetSyncUsers.add(username);
-
-  setTimeout(async () => {
-    try {
-      while (pendingGoogleSheetSyncPayloads.has(username)) {
-        const payload = pendingGoogleSheetSyncPayloads.get(username);
-        pendingGoogleSheetSyncPayloads.delete(username);
-
-        try {
-          await requestGoogleSheetsSync("upsertUserSettings", {
-            username,
-            data: payload
-          });
-        } catch (error) {
-          console.error(`Google-Sheets-Settings-Hintergrundsync fehlgeschlagen (${username}).`, error);
-        }
-      }
-    } finally {
-      activeGoogleSheetSyncUsers.delete(username);
-      if (pendingGoogleSheetSyncPayloads.has(username)) {
-        queueGoogleSheetsSettingsSync(user);
-      }
-    }
-  }, 0);
-}
-
-function queueGoogleSheetsEntitySync(store, user, batch = {}) {
-  if (!isGoogleSheetsSyncConfigured() || !user?.username) {
-    return;
-  }
-
-  const username = String(user.username).trim();
-  const nextBatch = buildEntitySyncBatchPayload(batch);
-  const existingPendingBatch = pendingGoogleSheetEntitySyncs.get(username);
-  if (
-    !nextBatch.customersUpsert.length &&
-    !nextBatch.customersDelete.length &&
-    !nextBatch.articlesUpsert.length &&
-    !nextBatch.articlesDelete.length &&
-    !existingPendingBatch
-  ) {
-    return;
-  }
-
-  const pendingBatch = existingPendingBatch || {
-    customersUpsert: new Map(),
-    customersDelete: new Set(),
-    articlesUpsert: new Map(),
-    articlesDelete: new Set()
-  };
-
-  nextBatch.customersUpsert.forEach((entry) => {
-    pendingBatch.customersUpsert.set(String(entry.id), entry);
-    pendingBatch.customersDelete.delete(String(entry.id));
-  });
-  nextBatch.customersDelete.forEach((id) => {
-    pendingBatch.customersUpsert.delete(String(id));
-    pendingBatch.customersDelete.add(String(id));
-  });
-  nextBatch.articlesUpsert.forEach((entry) => {
-    pendingBatch.articlesUpsert.set(String(entry.id), entry);
-    pendingBatch.articlesDelete.delete(String(entry.id));
-  });
-  nextBatch.articlesDelete.forEach((id) => {
-    pendingBatch.articlesUpsert.delete(String(id));
-    pendingBatch.articlesDelete.add(String(id));
-  });
-
-  pendingGoogleSheetEntitySyncs.set(username, pendingBatch);
-
-  if (activeGoogleSheetEntitySyncUsers.has(username)) {
-    return;
-  }
-
-  activeGoogleSheetEntitySyncUsers.add(username);
-
-  setTimeout(async () => {
-    try {
-      while (pendingGoogleSheetEntitySyncs.has(username)) {
-        const currentBatch = pendingGoogleSheetEntitySyncs.get(username);
-        pendingGoogleSheetEntitySyncs.delete(username);
-
-        const payload = {
-          customersUpsert: [...currentBatch.customersUpsert.values()],
-          customersDelete: [...currentBatch.customersDelete.values()],
-          articlesUpsert: [...currentBatch.articlesUpsert.values()],
-          articlesDelete: [...currentBatch.articlesDelete.values()]
-        };
-
-        try {
-          await requestGoogleSheetsSync("syncUserEntities", {
-            username,
-            data: payload
-          });
-
-          if (store && findUserByUsername(store, username)) {
-            const syncedUser = findUserByUsername(store, username);
-            syncedUser.deletedCustomers = normalizeDeletedEntityCollection(
-              syncedUser.deletedCustomers
-            ).filter((entry) => !payload.customersDelete.includes(String(entry.id)));
-            syncedUser.deletedArticles = normalizeDeletedEntityCollection(
-              syncedUser.deletedArticles
-            ).filter((entry) => !payload.articlesDelete.includes(String(entry.id)));
-            await writeStore(store);
-          }
-        } catch (error) {
-          console.error(`Google-Sheets-Entity-Hintergrundsync fehlgeschlagen (${username}).`, error);
-        }
-      }
-    } finally {
-      activeGoogleSheetEntitySyncUsers.delete(username);
-      if (pendingGoogleSheetEntitySyncs.has(username)) {
-        queueGoogleSheetsEntitySync(store, user);
-      }
-    }
-  }, 0);
 }
 
 function sanitizeItem(input = {}) {
@@ -2594,7 +1605,7 @@ app.get("/api/files/generated/:fileName", async (req, res, next) => {
 app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
   try {
     const isAdmin = req.user.username === "admin";
-    const adminUsers = isAdmin ? await buildAdminUsersResponse(req.store) : [];
+    const adminUsers = isAdmin ? buildAdminUsersLocalResponse(req.store) : [];
     const payload = {
       isAdmin,
       settings: getUserSettingsForClient(req.user),
@@ -2608,20 +1619,6 @@ app.get("/api/bootstrap", requireAuth, async (req, res, next) => {
     };
 
     res.json(payload);
-
-    Promise.resolve()
-      .then(async () => {
-        if (isAdmin) {
-          await syncUserToGoogleSheets(req.user);
-          await backfillImportedUsersToGoogleSheets(req.store);
-          return;
-        }
-
-        await hydrateUserFromGoogleSheets(req.store, req.user);
-      })
-      .catch((error) => {
-        console.error(`Hintergrund-Sync fehlgeschlagen (${req.user.username}).`, error);
-      });
   } catch (error) {
     next(error);
   }
@@ -2632,11 +1629,7 @@ app.post("/api/auth/login", async (req, res, next) => {
     const username = String(req.body?.username || "").trim();
     const store = await readStore({ username: username === "admin" ? "" : username });
     const password = String(req.body?.password || "");
-    let user = findUserByUsername(store, username);
-
-    if (username && isGoogleSheetsSyncConfigured()) {
-      user = await syncUserFromGoogleSheetsIntoStore(store, username);
-    }
+    const user = findUserByUsername(store, username);
 
     if (!username || !password || !user || user.passwordHash !== hashPassword(password)) {
       res.status(401).json({ error: "Benutzername oder Kennwort ist nicht korrekt." });
@@ -2651,7 +1644,6 @@ app.post("/api/auth/login", async (req, res, next) => {
     markUserSeen(user);
     const session = createSession(store, user.id);
     await writeStore(store);
-    queueGoogleSheetsSettingsSync(user);
     res.json({ ok: true, username: user.username, token: session.token });
   } catch (error) {
     next(error);
@@ -2662,7 +1654,6 @@ app.get("/api/auth/session", requireAuth, async (req, res, next) => {
   try {
     markUserSeen(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsSettingsSync(req.user);
     res.json({ ok: true, username: req.user.username });
   } catch (error) {
     next(error);
@@ -2681,7 +1672,7 @@ app.post("/api/auth/logout", requireAuth, async (req, res, next) => {
 
 app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    res.json({ users: await buildAdminUsersResponse(req.store) });
+    res.json({ users: buildAdminUsersLocalResponse(req.store) });
   } catch (error) {
     next(error);
   }
@@ -2705,8 +1696,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
     }
 
     const existingUser =
-      findUserByUsername(req.store, username) ||
-      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+      findUserByUsername(req.store, username);
     if (existingUser) {
       res.status(409).json({ error: "Dieser Benutzername ist bereits vorhanden." });
       return;
@@ -2738,12 +1728,10 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res, next) =
 
     req.store.users.push(newUser);
     await writeStore(req.store);
-    await syncUserToGoogleSheets(req.user);
-    await syncUserToGoogleSheets(newUser);
 
     res.status(201).json({
       user: serializeAdminUser(newUser),
-      users: await buildAdminUsersResponse(req.store),
+      users: buildAdminUsersLocalResponse(req.store),
       settings: getUserSettingsForClient(req.user),
       defaultUserPassword: defaultPassword
     });
@@ -2761,8 +1749,7 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
     }
 
     const user =
-      findUserByUsername(req.store, username) ||
-      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+      findUserByUsername(req.store, username);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2779,12 +1766,11 @@ app.post("/api/admin/users/:username/reset-password", requireAuth, requireAdmin,
     markUserSettingsUpdated(user);
 
     await writeStore(req.store);
-    queueGoogleSheetsSettingsSync(user);
 
     res.json({
       ok: true,
       message: `Passwort von ${user.username} wurde auf ${defaultPassword} zur\u00FCckgesetzt.`,
-      users: await buildAdminUsersResponse(req.store)
+      users: buildAdminUsersLocalResponse(req.store)
     });
   } catch (error) {
     next(error);
@@ -2800,8 +1786,7 @@ app.put("/api/admin/users/:username/email", requireAuth, requireAdmin, async (re
     }
 
     const user =
-      findUserByUsername(req.store, username) ||
-      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+      findUserByUsername(req.store, username);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2820,14 +1805,13 @@ app.put("/api/admin/users/:username/email", requireAuth, requireAdmin, async (re
     markUserSettingsUpdated(user);
 
     await writeStore(req.store);
-    await syncUserSettingsToGoogleSheets(user);
 
     res.json({
       ok: true,
       message: email
         ? `E-Mail-Adresse von ${user.username} wurde gespeichert.`
         : `E-Mail-Adresse von ${user.username} wurde entfernt.`,
-      users: await buildAdminUsersResponse(req.store)
+      users: buildAdminUsersLocalResponse(req.store)
     });
   } catch (error) {
     next(error);
@@ -2843,8 +1827,7 @@ app.post("/api/admin/users/:username/toggle-lock", requireAuth, requireAdmin, as
     }
 
     const user =
-      findUserByUsername(req.store, username) ||
-      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+      findUserByUsername(req.store, username);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2860,14 +1843,13 @@ app.post("/api/admin/users/:username/toggle-lock", requireAuth, requireAdmin, as
     req.store.sessions = req.store.sessions.filter((entry) => entry.userId !== user.id);
 
     await writeStore(req.store);
-    queueGoogleSheetsSettingsSync(user);
 
     res.json({
       ok: true,
       message: nextLockedState
         ? `Benutzer ${user.username} wurde gesperrt.`
         : `Benutzer ${user.username} wurde entsperrt.`,
-      users: await buildAdminUsersResponse(req.store)
+      users: buildAdminUsersLocalResponse(req.store)
     });
   } catch (error) {
     next(error);
@@ -2889,8 +1871,7 @@ app.post("/api/admin/users/:username/invite", requireAuth, requireAdmin, async (
     }
 
     const user =
-      findUserByUsername(req.store, username) ||
-      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+      findUserByUsername(req.store, username);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2902,7 +1883,7 @@ app.post("/api/admin/users/:username/invite", requireAuth, requireAdmin, async (
       res.json({
         ok: true,
         message: `Zugangsdaten wurden an ${draft.email} gesendet.`,
-        users: await buildAdminUsersResponse(req.store)
+        users: buildAdminUsersLocalResponse(req.store)
       });
       return;
     }
@@ -2910,7 +1891,7 @@ app.post("/api/admin/users/:username/invite", requireAuth, requireAdmin, async (
     res.json({
       ok: true,
       draft,
-      users: await buildAdminUsersResponse(req.store)
+      users: buildAdminUsersLocalResponse(req.store)
     });
   } catch (error) {
     next(error);
@@ -2936,7 +1917,6 @@ app.post("/api/auth/password", requireAuth, async (req, res, next) => {
     markUserSettingsUpdated(req.user);
 
     await writeStore(req.store);
-    queueGoogleSheetsSettingsSync(req.user);
 
     res.json({
       ok: true,
@@ -2956,8 +1936,7 @@ app.delete("/api/admin/users/:username", requireAuth, requireAdmin, async (req, 
     }
 
     const user =
-      findUserByUsername(req.store, username) ||
-      (isGoogleSheetsSyncConfigured() ? await syncUserFromGoogleSheetsIntoStore(req.store, username) : null);
+      findUserByUsername(req.store, username);
     if (!user) {
       res.status(404).json({ error: "Benutzer wurde nicht gefunden." });
       return;
@@ -2967,18 +1946,10 @@ app.delete("/api/admin/users/:username", requireAuth, requireAdmin, async (req, 
     req.store.sessions = req.store.sessions.filter((entry) => entry.userId !== user.id);
     await writeStore(req.store);
 
-    if (isGoogleSheetsSyncConfigured()) {
-      try {
-        await requestGoogleSheetsSync("deleteUserData", { username: user.username });
-      } catch (error) {
-        console.error(`Google-Sheets-L\u00F6schen fehlgeschlagen (${user.username}).`, error);
-      }
-    }
-
     res.json({
       ok: true,
       message: `Benutzer ${user.username} wurde gel\u00F6scht.`,
-      users: await buildAdminUsersResponse(req.store)
+      users: buildAdminUsersLocalResponse(req.store)
     });
   } catch (error) {
     next(error);
@@ -3004,7 +1975,6 @@ app.post("/api/admin/default-password", requireAuth, requireAdmin, async (req, r
     markUserSettingsUpdated(req.user);
 
     await writeStore(req.store);
-    queueGoogleSheetsSettingsSync(req.user);
 
     res.json({
       ok: true,
@@ -3021,7 +1991,6 @@ app.post("/api/assets/logo", requireAuth, async (req, res, next) => {
     await saveLogoAsset(req.user, String(req.body?.kind || "").trim(), req.body?.imageDataUrl);
     markUserSettingsUpdated(req.user);
     await writeStore(req.store);
-    await syncUserSettingsToGoogleSheets(req.user);
     res.status(201).json({ ok: true, settings: getUserSettingsForClient(req.user) });
   } catch (error) {
     next(error);
@@ -3033,7 +2002,6 @@ app.delete("/api/assets/logo/:kind", requireAuth, async (req, res, next) => {
     await removeLogoAsset(req.user, String(req.params.kind || "").trim());
     markUserSettingsUpdated(req.user);
     await writeStore(req.store);
-    await syncUserSettingsToGoogleSheets(req.user);
     res.json({ ok: true, settings: getUserSettingsForClient(req.user) });
   } catch (error) {
     next(error);
@@ -3078,7 +2046,6 @@ app.put("/api/settings", requireAuth, async (req, res, next) => {
     markUserSettingsUpdated(currentUser);
 
     await writeStore(req.store);
-    await syncUserSettingsToGoogleSheets(currentUser);
     res.json({ settings: getUserSettingsForClient(currentUser) });
   } catch (error) {
     next(error);
@@ -3105,9 +2072,6 @@ app.post("/api/customers", requireAuth, async (req, res, next) => {
     req.user.deletedCustomers = clearDeletedEntity(req.user.deletedCustomers, customer.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsEntitySync(req.store, req.user, {
-      customersUpsert: [storedCustomer]
-    });
     res.status(201).json({ customer: storedCustomer });
   } catch (error) {
     next(error);
@@ -3137,9 +2101,6 @@ app.put("/api/customers/:id", requireAuth, async (req, res, next) => {
     req.user.deletedCustomers = clearDeletedEntity(req.user.deletedCustomers, updatedCustomer.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsEntitySync(req.store, req.user, {
-      customersUpsert: [updatedCustomer]
-    });
     res.json({ customer: updatedCustomer });
   } catch (error) {
     next(error);
@@ -3155,9 +2116,6 @@ app.delete("/api/customers/:id", requireAuth, async (req, res, next) => {
     req.user.deletedCustomers = registerDeletedEntity(req.user.deletedCustomers, customerId);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsEntitySync(req.store, req.user, {
-      customersDelete: [customerId]
-    });
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -3188,9 +2146,6 @@ app.post("/api/articles", requireAuth, async (req, res, next) => {
     req.user.deletedArticles = clearDeletedEntity(req.user.deletedArticles, article.id);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsEntitySync(req.store, req.user, {
-      articlesUpsert: [storedArticle]
-    });
     res.status(201).json({ article: storedArticle });
   } catch (error) {
     next(error);
@@ -3231,10 +2186,6 @@ app.put("/api/articles/:id", requireAuth, async (req, res, next) => {
     }
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsEntitySync(req.store, req.user, {
-      articlesUpsert: [updatedArticle],
-      articlesDelete: articleDeleteBatch
-    });
     res.json({ article: updatedArticle });
   } catch (error) {
     next(error);
@@ -3250,9 +2201,6 @@ app.delete("/api/articles/:id", requireAuth, async (req, res, next) => {
     req.user.deletedArticles = registerDeletedEntity(req.user.deletedArticles, articleId);
     markUserActivity(req.user);
     await writeStore(req.store);
-    queueGoogleSheetsEntitySync(req.store, req.user, {
-      articlesDelete: [articleId]
-    });
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -3408,7 +2356,7 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
-export { app, ensureDataFiles, createUserRecord, applySeedDataIfNeeded, mergeStore };
+export { app, ensureDataFiles };
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
